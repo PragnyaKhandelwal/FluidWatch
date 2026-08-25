@@ -37,3 +37,17 @@ class ReadingOut(ReadingIn):
 
     id: int
     received_at: datetime
+
+
+class DeviceStatus(BaseModel):
+    """One device's latest known state - see app/routers/devices.py."""
+
+    device_id: str
+    bed_label: str | None
+    patient_name: str | None
+    fluid_label: str | None
+    battery_percent: int
+    wifi_rssi: int
+    status: str
+    received_at: datetime
+    online: bool

@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .db import Base, engine
-from .routers import frames, readings, ws
+from .routers import devices, frames, readings, ws
 
 Path("data").mkdir(exist_ok=True)
 Base.metadata.create_all(bind=engine)
@@ -22,6 +22,7 @@ app.add_middleware(
 
 app.include_router(readings.router)
 app.include_router(frames.router)
+app.include_router(devices.router)
 app.include_router(ws.router)
 
 

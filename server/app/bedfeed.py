@@ -14,9 +14,11 @@ _STATUS_MAP = {
 def to_bed_payload(reading: ReadingOut) -> dict:
     """Shapes a reading into exactly what frontend/src/lib/fluidwatch.ts's
     Bed type and dashboard.tsx's applyLiveUpdate() expect: {id, bed,
-    patient, fluid, flow, level, status, auxClass}. `id` is the join key
-    the dashboard matches/creates bed cards on, so it's always device_id.
-    auxClass is null for JSON-only (non-camera) readings."""
+    patient, fluid, flow, level, status, auxClass, battery, wifi}. `id` is
+    the join key the dashboard matches/creates bed cards on, so it's
+    always device_id. auxClass is null for JSON-only (non-camera) readings.
+    battery/wifi are the same hardware telemetry GET /api/v1/devices
+    exposes, pushed live here so bed cards don't need to poll separately."""
     return {
         "id": reading.device_id,
         "bed": reading.bed_label or reading.device_id,
@@ -26,4 +28,6 @@ def to_bed_payload(reading: ReadingOut) -> dict:
         "level": round(reading.fluid_level_percent, 1),
         "status": _STATUS_MAP.get(reading.status, "STABLE"),
         "auxClass": reading.aux_class,
+        "battery": reading.battery_percent,
+        "wifi": reading.wifi_rssi,
     }
