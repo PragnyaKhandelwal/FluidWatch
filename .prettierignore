@@ -6,3 +6,9 @@ pnpm-lock.yaml
 package-lock.json
 bun.lock
 routeTree.gen.ts
+.vercel
+.tanstack
+server
+firmware
+# Generated/managed by Lovable + Supabase - reformatting just churns on regen.
+src/integrations
