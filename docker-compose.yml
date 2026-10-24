@@ -1,0 +1,28 @@
+# Runs the backend locally in Docker:
+#
+#   API_AUTH_TOKEN=some-long-secret docker compose up --build
+#
+# Then point the dashboard (/admin -> WebSocket URL) at
+# ws://localhost:8000/ws/bedfeed, and the ESP32's secrets.h at
+# http://<this machine's LAN IP>:8000/api/v1/frames with the same token.
+#
+# The dashboard itself isn't containerized - it deploys to Vercel, and
+# locally `npm run dev` is all it needs.
+services:
+  backend:
+    build: ./server
+    ports:
+      - "8000:8000"
+    environment:
+      # Required here: inside a container, the "generate one and write it
+      # to .env" fallback in app/config.py would produce a new token every
+      # time the container is recreated, silently locking the ESP32 out.
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:?set API_AUTH_TOKEN (same value as the ESP32's secrets.h)}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/iv_drip.db}
+    volumes:
+      - backend-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  backend-data:
