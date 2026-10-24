@@ -22,6 +22,8 @@ export interface Bed {
   updatedAt: number;
   auxClass: AuxClass | null;
   history: number[]; // recent level % readings, oldest first
+  battery: number | null; // %, from the device's last reading - null for demo beds
+  wifi: number | null; // dBm RSSI, from the device's last reading - null for demo beds
 }
 
 // Backend's /ws/bedfeed (server/app/routers/ws.py) - bridges the ESP32
@@ -32,12 +34,96 @@ export interface Bed {
 export const DEFAULT_WS_URL = "ws://localhost:8000/ws/bedfeed";
 
 export const INITIAL_BEDS: Bed[] = [
-  { id: "01", bed: "Bed 01", patient: "J. Marsh", fluid: "Saline 0.9%", flow: 124, level: 78, status: "STABLE", muted: false, updatedAt: Date.now(), auxClass: null, history: [78] },
-  { id: "02", bed: "Bed 02", patient: "A. Chen", fluid: "Dextrose 5%", flow: 98, level: 64, status: "STABLE", muted: false, updatedAt: Date.now(), auxClass: null, history: [64] },
-  { id: "03", bed: "Bed 03", patient: "R. Kovac", fluid: "Heparin drip", flow: 12, level: 8, status: "CRITICAL", muted: false, updatedAt: Date.now(), auxClass: null, history: [8] },
-  { id: "04", bed: "Bed 04", patient: "M. Osei", fluid: "Ringer's Lactate", flow: 110, level: 91, status: "STABLE", muted: false, updatedAt: Date.now(), auxClass: null, history: [91] },
-  { id: "05", bed: "Bed 05", patient: "L. Vidal", fluid: "Saline 0.9%", flow: 45, level: 31, status: "WATCH", muted: false, updatedAt: Date.now(), auxClass: null, history: [31] },
-  { id: "06", bed: "Bed 06", patient: "T. Nakamura", fluid: "TPN Nutrition", flow: 0, level: 2, status: "CRITICAL", muted: false, updatedAt: Date.now(), auxClass: null, history: [2] },
+  {
+    id: "01",
+    bed: "Bed 01",
+    patient: "J. Marsh",
+    fluid: "Saline 0.9%",
+    flow: 124,
+    level: 78,
+    status: "STABLE",
+    muted: false,
+    updatedAt: Date.now(),
+    auxClass: null,
+    history: [78],
+    battery: null,
+    wifi: null,
+  },
+  {
+    id: "02",
+    bed: "Bed 02",
+    patient: "A. Chen",
+    fluid: "Dextrose 5%",
+    flow: 98,
+    level: 64,
+    status: "STABLE",
+    muted: false,
+    updatedAt: Date.now(),
+    auxClass: null,
+    history: [64],
+    battery: null,
+    wifi: null,
+  },
+  {
+    id: "03",
+    bed: "Bed 03",
+    patient: "R. Kovac",
+    fluid: "Heparin drip",
+    flow: 12,
+    level: 8,
+    status: "CRITICAL",
+    muted: false,
+    updatedAt: Date.now(),
+    auxClass: null,
+    history: [8],
+    battery: null,
+    wifi: null,
+  },
+  {
+    id: "04",
+    bed: "Bed 04",
+    patient: "M. Osei",
+    fluid: "Ringer's Lactate",
+    flow: 110,
+    level: 91,
+    status: "STABLE",
+    muted: false,
+    updatedAt: Date.now(),
+    auxClass: null,
+    history: [91],
+    battery: null,
+    wifi: null,
+  },
+  {
+    id: "05",
+    bed: "Bed 05",
+    patient: "L. Vidal",
+    fluid: "Saline 0.9%",
+    flow: 45,
+    level: 31,
+    status: "WATCH",
+    muted: false,
+    updatedAt: Date.now(),
+    auxClass: null,
+    history: [31],
+    battery: null,
+    wifi: null,
+  },
+  {
+    id: "06",
+    bed: "Bed 06",
+    patient: "T. Nakamura",
+    fluid: "TPN Nutrition",
+    flow: 0,
+    level: 2,
+    status: "CRITICAL",
+    muted: false,
+    updatedAt: Date.now(),
+    auxClass: null,
+    history: [2],
+    battery: null,
+    wifi: null,
+  },
 ];
 
 function pushHistory(history: number[], level: number): number[] {
@@ -119,6 +205,15 @@ export function applyLiveUpdate(
     const existing = byId.get(id);
     const flow = typeof incoming.flow === "number" ? incoming.flow : (existing?.flow ?? 0);
     const level = typeof incoming.level === "number" ? incoming.level : (existing?.level ?? 0);
+    const incomingWithHardware = incoming as Partial<Bed> & { battery?: unknown; wifi?: unknown };
+    const battery =
+      typeof incomingWithHardware.battery === "number"
+        ? incomingWithHardware.battery
+        : (existing?.battery ?? null);
+    const wifi =
+      typeof incomingWithHardware.wifi === "number"
+        ? incomingWithHardware.wifi
+        : (existing?.wifi ?? null);
 
     byId.set(id, {
       id,
@@ -132,6 +227,8 @@ export function applyLiveUpdate(
       updatedAt: Date.now(),
       auxClass: parseAuxClass(incoming.auxClass) ?? existing?.auxClass ?? null,
       history: pushHistory(existing?.history ?? [], level),
+      battery,
+      wifi,
     });
   }
 
@@ -162,7 +259,11 @@ export function deriveHttpOrigin(wsUrl: string): string | null {
  * should skip rendering an image in that case rather than requesting a
  * broken URL. Includes a cache-busting param so the browser re-fetches
  * on every new reading instead of showing a stale cached image. */
-export function frameImageUrl(httpOrigin: string | null, deviceId: string, updatedAt: number): string | null {
+export function frameImageUrl(
+  httpOrigin: string | null,
+  deviceId: string,
+  updatedAt: number,
+): string | null {
   if (!httpOrigin) return null;
   return `${httpOrigin}/api/v1/frames/latest?device_id=${encodeURIComponent(deviceId)}&t=${updatedAt}`;
 }
@@ -179,4 +280,58 @@ export function formatFlow(flow: number, unit: UnitKey) {
   const v = flow * UNITS[unit].factor;
   if (unit === "l") return v.toFixed(2);
   return Math.round(v).toString();
+}
+
+// --- Backend REST data (analytics + hardware status) --------------------
+//
+// The dashboard's bed cards are driven by the /ws/bedfeed WebSocket, but
+// historical trends and the fleet-wide hardware table (Analytics page,
+// AppShell's "devices online" pill) come from plain REST reads against
+// the same backend - see server/app/routers/{readings,devices}.py.
+
+/** One device's most recently known state - GET /api/v1/devices. */
+export interface DeviceStatus {
+  device_id: string;
+  bed_label: string | null;
+  patient_name: string | null;
+  fluid_label: string | null;
+  battery_percent: number;
+  wifi_rssi: number;
+  status: string;
+  received_at: string;
+  online: boolean;
+}
+
+/** One stored reading row - GET /api/v1/readings. Field names mirror the
+ * backend's ReadingOut schema (server/app/schemas.py) directly. */
+export interface ReadingRow {
+  id: number;
+  device_id: string;
+  received_at: string;
+  fluid_level_percent: number;
+  flow_rate_ml_per_hr: number;
+  battery_percent: number;
+  wifi_rssi: number;
+  status: string;
+  alert: string | null;
+}
+
+export async function fetchDevices(httpOrigin: string | null): Promise<DeviceStatus[]> {
+  if (!httpOrigin) return [];
+  const res = await fetch(`${httpOrigin}/api/v1/devices`);
+  if (!res.ok) throw new Error(`Failed to load devices (${res.status})`);
+  return res.json();
+}
+
+export async function fetchReadings(
+  httpOrigin: string | null,
+  deviceId?: string,
+  limit = 500,
+): Promise<ReadingRow[]> {
+  if (!httpOrigin) return [];
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (deviceId) params.set("device_id", deviceId);
+  const res = await fetch(`${httpOrigin}/api/v1/readings?${params}`);
+  if (!res.ok) throw new Error(`Failed to load readings (${res.status})`);
+  return res.json();
 }

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -11,7 +11,6 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -24,20 +23,9 @@ import {
 import { cn } from "@/lib/utils";
 import { AppShell } from "@/components/AppShell";
 import { BedCard } from "@/components/BedCard";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
-import {
-  DEFAULT_THRESHOLDS,
-  DEFAULT_WS_URL,
-  INITIAL_BEDS,
-  UNITS,
-  applyLiveUpdate,
-  deriveHttpOrigin,
-  tick,
-  type Bed,
-  type Thresholds,
-  type UnitKey,
-} from "@/lib/fluidwatch";
+import { useLiveBeds } from "@/lib/liveBeds";
+import { UNITS, type UnitKey } from "@/lib/fluidwatch";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -49,7 +37,10 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
           "Live infusion dashboard: flow rate, fluid level, ward-wide statistics and critical alerts for every bed.",
       },
       { property: "og:title", content: "Ward Dashboard — FluidWatch" },
-      { property: "og:description", content: "Bed-by-bed infusion telemetry with ward statistics and alerts." },
+      {
+        property: "og:description",
+        content: "Bed-by-bed infusion telemetry with ward statistics and alerts.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -58,25 +49,6 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 });
 
 type Filter = "all" | "critical" | "watch" | "stable";
-
-function beep() {
-  try {
-    const Ctx =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.frequency.value = 880;
-    gain.gain.value = 0.06;
-    osc.connect(gain).connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.18);
-  } catch {
-    /* audio unavailable */
-  }
-}
 
 function StatCard({
   icon: Icon,
@@ -99,11 +71,23 @@ function StatCard({
         : tone === "success"
           ? "text-success"
           : "text-foreground";
+  const chipClass =
+    tone === "critical"
+      ? "bg-critical-soft text-critical"
+      : tone === "warn"
+        ? "bg-warn-soft text-warn"
+        : tone === "success"
+          ? "bg-success-soft text-success"
+          : "bg-primary/10 text-primary";
   return (
-    <article className="rounded-2xl border border-border bg-card p-5">
+    <article className="glass-card rounded-2xl p-5 transition-all hover:-translate-y-0.5 hover:shadow-lg">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold tracking-widest text-muted-foreground">{label.toUpperCase()}</p>
-        <Icon className={cn("size-4", toneClass)} />
+        <p className="text-xs font-semibold tracking-widest text-muted-foreground">
+          {label.toUpperCase()}
+        </p>
+        <span className={cn("flex size-8 items-center justify-center rounded-lg", chipClass)}>
+          <Icon className="size-4" />
+        </span>
       </div>
       <p className={cn("mt-3 text-3xl font-bold tracking-tight", toneClass)}>{value}</p>
       {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
@@ -113,100 +97,21 @@ function StatCard({
 
 function DashboardPage() {
   const { profile } = useAuth();
-  const [beds, setBeds] = useState<Bed[]>(INITIAL_BEDS);
+  const {
+    beds,
+    wantLive,
+    setWantLive,
+    toggleMute,
+    log,
+    sound,
+    setSound,
+    autoRefresh,
+    setAutoRefresh,
+    wsUrl,
+    httpOrigin,
+  } = useLiveBeds();
   const [filter, setFilter] = useState<Filter>("all");
-  const [sound, setSound] = useState(true);
-  const [autoRefresh, setAutoRefresh] = useState(true);
   const [unit, setUnit] = useState<UnitKey>("ml");
-  const [wsUrl, setWsUrl] = useState(DEFAULT_WS_URL);
-  const [thresholds, setThresholds] = useState<Thresholds>(DEFAULT_THRESHOLDS);
-  const [connected, setConnected] = useState(false);
-  const [wantLive, setWantLive] = useState(false);
-  const [log, setLog] = useState<{ id: string; text: string; at: number }[]>([]);
-  const socketRef = useRef<WebSocket | null>(null);
-  const prevStatus = useRef<Record<string, Bed["status"]>>({});
-
-  // Ward-wide settings configured by administrators.
-  useEffect(() => {
-    void supabase
-      .from("ward_settings")
-      .select("ws_url, sound_alerts, watch_level, critical_level, min_flow")
-      .maybeSingle()
-      .then(({ data }) => {
-        if (!data) return;
-        setWsUrl(data.ws_url ?? DEFAULT_WS_URL);
-        setSound(Boolean(data.sound_alerts));
-        setThresholds({
-          watchLevel: data.watch_level ?? DEFAULT_THRESHOLDS.watchLevel,
-          criticalLevel: data.critical_level ?? DEFAULT_THRESHOLDS.criticalLevel,
-          minFlow: data.min_flow ?? DEFAULT_THRESHOLDS.minFlow,
-        });
-      });
-  }, []);
-
-  const applyPayload = useCallback(
-    (payload: unknown) => {
-      setBeds((current) => applyLiveUpdate(current, payload, thresholds));
-    },
-    [thresholds],
-  );
-
-  useEffect(() => {
-    if (!wantLive) {
-      socketRef.current?.close();
-      socketRef.current = null;
-      setConnected(false);
-      return;
-    }
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(wsUrl);
-    } catch {
-      toast.error("Invalid WebSocket URL");
-      setWantLive(false);
-      return;
-    }
-    socketRef.current = ws;
-    ws.onopen = () => {
-      setConnected(true);
-      toast.success(`Connected to ${wsUrl}`);
-    };
-    ws.onmessage = (event) => {
-      try {
-        applyPayload(JSON.parse(event.data));
-      } catch {
-        /* ignore malformed frame */
-      }
-    };
-    ws.onerror = () => toast.error("WebSocket error — falling back to simulated stream");
-    ws.onclose = () => setConnected(false);
-    return () => ws.close();
-  }, [wantLive, wsUrl, applyPayload]);
-
-  useEffect(() => {
-    if (!autoRefresh || connected) return;
-    const t = setInterval(() => setBeds((b) => tick(b, thresholds)), 2000);
-    return () => clearInterval(t);
-  }, [autoRefresh, connected, thresholds]);
-
-  useEffect(() => {
-    beds.forEach((b) => {
-      const before = prevStatus.current[b.id];
-      if (before && before !== b.status && b.status === "CRITICAL") {
-        setLog((l) =>
-          [
-            { id: `${b.id}-${Date.now()}`, text: `${b.bed} · ${b.patient} went CRITICAL`, at: Date.now() },
-            ...l,
-          ].slice(0, 30),
-        );
-        toast.error(`${b.bed} critical`, { description: `${b.patient} · ${b.fluid}` });
-        if (sound && !b.muted) beep();
-      }
-      prevStatus.current[b.id] = b.status;
-    });
-  }, [beds, sound]);
-
-  const httpOrigin = useMemo(() => deriveHttpOrigin(wsUrl), [wsUrl]);
 
   const stats = useMemo(() => {
     const critical = beds.filter((b) => b.status === "CRITICAL").length;
@@ -222,22 +127,23 @@ function DashboardPage() {
     [beds, filter],
   );
 
-  const toggleMute = (id: string) =>
-    setBeds((bs) => bs.map((b) => (b.id === id ? { ...b, muted: !b.muted } : b)));
-
   return (
-    <AppShell live={connected}>
+    <AppShell>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">
-            {profile?.ward ?? "Ward A"} — Live Bed Monitor
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-success">
+            <span className="size-1.5 animate-pulse rounded-full bg-success" /> LIVE MONITOR
+          </span>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight">
+            <span className="text-gradient">{profile?.ward ?? "Ward A"}</span> — Live Bed Monitor
           </h1>
           <p className="mt-1 text-muted-foreground">
-            Welcome back{profile?.full_name ? `, ${profile.full_name}` : ""} · {beds.length} beds under observation
+            Welcome back{profile?.full_name ? `, ${profile.full_name}` : ""} · {beds.length} beds
+            under observation
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex rounded-xl border border-border p-1">
+          <div className="glass-panel flex rounded-xl p-1">
             {(["all", "critical", "watch", "stable"] as Filter[]).map((f) => (
               <button
                 key={f}
@@ -251,7 +157,7 @@ function DashboardPage() {
               </button>
             ))}
           </div>
-          <label className="flex items-center gap-3 rounded-xl border border-border px-4 py-2 text-sm font-medium">
+          <label className="glass-panel flex items-center gap-3 rounded-xl px-4 py-2 text-sm font-medium">
             {sound ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
             Sound
             <Switch checked={sound} onCheckedChange={setSound} aria-label="Sound alerts" />
@@ -260,7 +166,12 @@ function DashboardPage() {
       </div>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard icon={Activity} label="Beds monitored" value={String(beds.length)} hint="Active infusion lines" />
+        <StatCard
+          icon={Activity}
+          label="Beds monitored"
+          value={String(beds.length)}
+          hint="Active infusion lines"
+        />
         <StatCard
           icon={AlertTriangle}
           label="Critical"
@@ -268,41 +179,82 @@ function DashboardPage() {
           hint="Needs a nurse now"
           tone={stats.critical ? "critical" : "default"}
         />
-        <StatCard icon={BellRing} label="Watch" value={String(stats.watch)} hint="Approaching thresholds" tone="warn" />
-        <StatCard icon={Droplet} label="Avg fluid level" value={`${Math.round(stats.avgLevel)}%`} tone="success" />
-        <StatCard icon={Gauge} label="Avg flow" value={`${Math.round(stats.avgFlow)} ml/hr`} hint="Ward average" />
+        <StatCard
+          icon={BellRing}
+          label="Watch"
+          value={String(stats.watch)}
+          hint="Approaching thresholds"
+          tone="warn"
+        />
+        <StatCard
+          icon={Droplet}
+          label="Avg fluid level"
+          value={`${Math.round(stats.avgLevel)}%`}
+          tone="success"
+        />
+        <StatCard
+          icon={Gauge}
+          label="Avg flow"
+          value={`${Math.round(stats.avgFlow)} ml/hr`}
+          hint="Ward average"
+        />
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="grid gap-6 md:grid-cols-2">
           {visible.map((b) => (
-            <BedCard key={b.id} bed={b} unit={unit} httpOrigin={httpOrigin} onToggleMute={toggleMute} />
+            <BedCard
+              key={b.id}
+              bed={b}
+              unit={unit}
+              httpOrigin={httpOrigin}
+              onToggleMute={toggleMute}
+            />
           ))}
-          {visible.length === 0 && <p className="text-muted-foreground">No beds match this filter.</p>}
+          {visible.length === 0 && (
+            <p className="text-muted-foreground">No beds match this filter.</p>
+          )}
         </div>
 
         <aside className="space-y-6">
-          <section className="rounded-2xl border border-border bg-card p-5">
-            <h2 className="text-sm font-semibold tracking-widest text-muted-foreground">ALERT FEED</h2>
+          <section className="glass-card rounded-2xl p-5">
+            <h2 className="text-sm font-semibold tracking-widest text-muted-foreground">
+              ALERT FEED
+            </h2>
             <div className="mt-4 space-y-3">
-              {log.length === 0 && <p className="text-sm text-muted-foreground">No alerts recorded yet.</p>}
+              {log.length === 0 && (
+                <p className="text-sm text-muted-foreground">No alerts recorded yet.</p>
+              )}
               {log.slice(0, 8).map((l) => (
-                <div key={l.id} className="rounded-xl border border-critical bg-critical-soft px-3 py-2">
+                <div
+                  key={l.id}
+                  className="rounded-xl border border-critical bg-critical-soft px-3 py-2"
+                >
                   <p className="text-sm font-medium text-critical">{l.text}</p>
-                  <p className="text-xs text-muted-foreground">{new Date(l.at).toLocaleTimeString()}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(l.at).toLocaleTimeString()}
+                  </p>
                 </div>
               ))}
             </div>
           </section>
 
-          <section className="rounded-2xl border border-border bg-card p-5">
-            <h2 className="text-sm font-semibold tracking-widest text-muted-foreground">STREAM CONTROL</h2>
+          <section className="glass-card rounded-2xl p-5">
+            <h2 className="text-sm font-semibold tracking-widest text-muted-foreground">
+              STREAM CONTROL
+            </h2>
             <label className="mt-4 flex items-center justify-between text-sm font-medium">
               <span className="flex items-center gap-2">
-                <RefreshCw className={cn("size-4", autoRefresh && "animate-spin [animation-duration:3s]")} />
+                <RefreshCw
+                  className={cn("size-4", autoRefresh && "animate-spin [animation-duration:3s]")}
+                />
                 Auto-refresh
               </span>
-              <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} aria-label="Auto refresh" />
+              <Switch
+                checked={autoRefresh}
+                onCheckedChange={setAutoRefresh}
+                aria-label="Auto refresh"
+              />
             </label>
             <div className="mt-4 flex items-center justify-between gap-3">
               <span className="text-sm text-muted-foreground">Flow units</span>
@@ -334,7 +286,7 @@ function DashboardPage() {
 
       <section className="mt-8">
         <h2 className="text-xl font-semibold tracking-tight">Patients</h2>
-        <div className="mt-4 overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="glass-card mt-4 overflow-hidden rounded-2xl">
           {beds.map((b) => (
             <div
               key={b.id}

@@ -1,5 +1,6 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
+import { LiveBedsProvider } from "@/lib/liveBeds";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -9,5 +10,9 @@ export const Route = createFileRoute("/_authenticated")({
       throw redirect({ to: "/auth", search: { redirect: location.href } });
     }
   },
-  component: () => <Outlet />,
+  component: () => (
+    <LiveBedsProvider>
+      <Outlet />
+    </LiveBedsProvider>
+  ),
 });

@@ -21,7 +21,10 @@ export const Route = createFileRoute("/auth")({
           "Sign in to FluidWatch to monitor live infusion flow rates, fluid levels and ward alerts for every bed.",
       },
       { property: "og:title", content: "Staff Sign In — FluidWatch" },
-      { property: "og:description", content: "Secure staff access to the FluidWatch ward monitoring console." },
+      {
+        property: "og:description",
+        content: "Secure staff access to the FluidWatch ward monitoring console.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -90,7 +93,7 @@ function AuthPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
+    <div className="flex min-h-screen items-center justify-center gradient-mesh px-4 py-12">
       <div className="w-full max-w-md">
         <div className="flex items-center gap-3">
           <span className="flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground">
@@ -102,8 +105,8 @@ function AuthPage() {
           </div>
         </div>
 
-        <div className="mt-6 rounded-2xl border border-border bg-card p-6 shadow-sm">
-          <div className="flex rounded-xl border border-border p-1">
+        <div className="glass-card mt-6 rounded-2xl p-6">
+          <div className="glass-panel flex rounded-xl p-1">
             {(["signin", "signup"] as const).map((m) => (
               <button
                 key={m}
@@ -124,15 +127,21 @@ function AuthPage() {
 
           {sent ? (
             <p className="mt-6 text-sm text-muted-foreground">
-              We sent a confirmation link to <span className="font-medium text-foreground">{email}</span>. Confirm
-              your email, then sign in.
+              We sent a confirmation link to{" "}
+              <span className="font-medium text-foreground">{email}</span>. Confirm your email, then
+              sign in.
             </p>
           ) : (
             <form className="mt-6 space-y-4" onSubmit={submit}>
               {mode === "signup" && (
                 <div className="space-y-2">
                   <Label htmlFor="name">Full name</Label>
-                  <Input id="name" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
+                  <Input
+                    id="name"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    required
+                  />
                 </div>
               )}
               <div className="space-y-2">
