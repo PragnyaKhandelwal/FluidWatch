@@ -8,7 +8,5 @@ bun.lock
 routeTree.gen.ts
 .vercel
 .tanstack
-server
-firmware
 # Supabase-generated clients and types - reformatting just churns on regen.
 src/integrations

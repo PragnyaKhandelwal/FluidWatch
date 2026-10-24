@@ -1,0 +1,24 @@
+{
+  "type": "continuous_fill_regression_v2_multitask",
+  "dataset": {
+    "sal_data_empty": 0,
+    "sal_data_50": 50,
+    "sal_data_80": 80,
+    "sal_data_100": 100
+  },
+  "image_size": 224,
+  "model": "MobileNetV3-Small multitask",
+  "initialized_from_classifier": true,
+  "test_mae_percent": 3.8264628566642274,
+  "test_rmse_percent": 8.921553393917124,
+  "auxiliary_class_accuracy_percent": 94.77434679334917,
+  "best_validation_mae_percent": 3.9653784328288535,
+  "per_class_mae_percent": {
+    "0": 0.3292310750247929,
+    "50": 3.114798336937314,
+    "80": 9.935205550420852,
+    "100": 1.9445398438651607
+  },
+  "old_test_mae_percent": 7.14,
+  "note": "This model is separate from the existing 97.4% classifier. Training labels remain only 0, 50, 80 and 100 percent, so intermediate predictions require real intermediate-fill validation."
+}

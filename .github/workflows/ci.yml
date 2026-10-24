@@ -33,6 +33,9 @@ jobs:
   frontend:
     name: Dashboard (lint, typecheck, unit tests, build)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

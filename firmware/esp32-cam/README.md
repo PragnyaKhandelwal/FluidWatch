@@ -43,10 +43,10 @@ pio device monitor
 ```
 
 `SERVER_URL` needs the backend's LAN IP (check with `ipconfig` on
-whatever machine runs `frontend/server`) plus the `/api/v1/frames` path,
+whatever machine runs `server`) plus the `/api/v1/frames` path,
 e.g. `http://192.168.1.34:8000/api/v1/frames`. `API_AUTH_TOKEN` must
-match the backend's - see `frontend/server/.env` (auto-generated on
-first run; check its startup log) or `frontend/server/README.md`'s auth
+match the backend's - see `server/.env` (auto-generated on
+first run; check its startup log) or `server/README.md`'s auth
 section.
 
 ## What it does
@@ -68,7 +68,7 @@ section.
 control the tradeoff: bigger/higher-quality frames give the model more
 detail but take longer to upload over WiFi (and the model resizes
 everything to 224×224 internally anyway - see
-`frontend/server/app/cv/real_frame_processor.py` - so there's a point
+`server/app/cv/real_frame_processor.py` - so there's a point
 past which more resolution stops helping). `FRAMESIZE_VGA` (640×480) is
 the starting default; only go higher if testing shows the model actually
 needs it.
@@ -85,5 +85,5 @@ needs it.
   you changed it after a previous build).
 - **Upload always fails / times out**: confirm `SERVER_URL` is reachable
   from the ESP32's network (same WiFi as the machine running
-  `frontend/server`, correct LAN IP, backend actually running), and that
+  `server`, correct LAN IP, backend actually running), and that
   `API_AUTH_TOKEN` matches exactly.

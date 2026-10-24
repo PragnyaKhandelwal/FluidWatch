@@ -35,7 +35,7 @@ EMR/records purposes. Replaces the earlier `mock_server.py` stand-in.
 ## Setup
 
 ```
-cd frontend/server   # from the project root; this repo's root is frontend/
+cd server             # from the repo root
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements.txt
@@ -80,7 +80,7 @@ a new one generated.
    photo to `SERVER_URL` from `secrets.h` on its capture timer.
 3. Watch readings arrive at `GET http://localhost:8000/api/v1/readings/latest`
    or in `/docs`.
-4. Run the dashboard (see `frontend/README.md`) and hit "Connect ward
+4. Run the dashboard (see `../frontend/README.md`) and hit "Connect ward
    server" - it points at `ws://localhost:8000/ws/bedfeed` by default and a
    new bed card appears for the ESP32's `DEVICE_ID` as readings arrive.
 
@@ -122,15 +122,14 @@ connect. `render.yaml` here is a Render Blueprint that captures the service
 config; you can also skip it and fill the same values into the dashboard by
 hand.
 
-This folder lives inside the `frontend/` git repo (`server/` is a subfolder,
-alongside `src/`) rather than its own repo, so Render deploys it from the
-same repo as the dashboard - just pointed at a different subfolder via
-**Root Directory**.
+This folder lives in the same repo as the dashboard (`server/` next to
+`frontend/`), so Render deploys it from that repo - just pointed at this
+subfolder via **Root Directory**.
 
 ### Steps
 
 1. Render Dashboard → **New → Web Service** → connect the
-   `PragnyaKhandelwal/SIH26` repo (same one the dashboard deploys from).
+   `PragnyaKhandelwal/FluidWatch` repo (same one the dashboard deploys from).
    - **Root Directory**: `server`.
    - **Runtime**: Python 3.
    - **Build Command**: `pip install -r requirements.txt`.

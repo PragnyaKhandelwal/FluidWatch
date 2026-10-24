@@ -7,18 +7,9 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    // .vercel/output is the local build bundle (megabytes of minified JS),
-    // server/ and firmware/ aren't JS projects, routeTree.gen.ts is generated.
-    ignores: [
-      "dist",
-      ".output",
-      ".vinxi",
-      ".vercel",
-      ".tanstack",
-      "server",
-      "firmware",
-      "src/routeTree.gen.ts",
-    ],
+    // .vercel/output is the local build bundle (megabytes of minified JS);
+    // routeTree.gen.ts is generated.
+    ignores: ["dist", ".output", ".vinxi", ".vercel", ".tanstack", "src/routeTree.gen.ts"],
   },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],

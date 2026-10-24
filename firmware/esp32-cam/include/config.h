@@ -31,7 +31,7 @@
 
 // Capture settings. FRAMESIZE_VGA (640x480) is a solid default - small,
 // fast to upload, plenty of resolution for the model (which resizes to
-// 224x224 anyway - see frontend/server/app/cv/real_frame_processor.py,
+// 224x224 anyway - see server/app/cv/real_frame_processor.py,
 // so going higher than VGA mostly just makes uploads slower for detail
 // the model discards). Bump to FRAMESIZE_SVGA/XGA only if a real test
 // against the actual container shows the model needs more detail.

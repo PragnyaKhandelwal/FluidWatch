@@ -1,0 +1,45 @@
+{
+  "classes": [
+    "empty",
+    "50%",
+    "80%",
+    "full"
+  ],
+  "class_to_fill_percent": {
+    "0": 0,
+    "1": 50,
+    "2": 80,
+    "3": 100
+  },
+  "image_size": 160,
+  "model": "MobileNetV3-Small",
+  "model_file": "fill_classifier_mobilenet.pth",
+  "test_accuracy_4_class": 0.9739952718676123,
+  "empty_full_exact_accuracy": 0.986046511627907,
+  "confusion_matrix": [
+    [
+      115,
+      1,
+      2,
+      2
+    ],
+    [
+      1,
+      91,
+      1,
+      1
+    ],
+    [
+      1,
+      0,
+      109,
+      0
+    ],
+    [
+      1,
+      0,
+      1,
+      97
+    ]
+  ]
+}

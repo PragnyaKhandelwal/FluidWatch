@@ -1,19 +1,57 @@
-# FluidWatch — Ward Dashboard
+# FluidWatch — Smart IV Drip System
 
-The staff-facing dashboard for the Smart IV Drip System project: sign in,
-see every bed's live fluid level/flow rate, get alerted when one goes
-critical. This repo root is the dashboard itself; `server/` (FastAPI
-backend) and `firmware/esp32-cam/` (the ESP32-CAM camera unit) live
-alongside it as subfolders so everything ships from one repo (dashboard →
-Vercel, backend → Render).
+An ESP32-CAM unit mounted on an IV stand photographs the bag on a timer; a
+backend scores each photo with a trained fill-level model, derives flow
+rate and status, and pushes live updates to a dashboard that shows nursing
+staff every bed's status and raises alerts when one goes critical.
 
 ```
-src/                  Dashboard (this app)
-server/               FastAPI backend + fill-level model     - see server/README.md
-firmware/esp32-cam/   ESP32-CAM capture/upload firmware       - see its README.md
-.github/workflows/    CI (tests, builds, Docker end-to-end)
-docker-compose.yml    Run the backend locally in Docker
+frontend/             Ward dashboard - TanStack Start + React, Supabase auth.   Deploys to Vercel.
+server/               FastAPI backend - ingest, fill-level model, storage,      Deploys to Render.
+                      exports, WebSocket feeds.
+firmware/esp32-cam/   ESP32-CAM (AI-Thinker, OV5640) firmware - captures a photo
+                      on a timer and uploads it to the backend. PlatformIO.
+ml-model-training/    Training scripts and model artifacts (provenance for the
+                      model the backend ships).
+.github/workflows/    CI - tests, builds, firmware compile, Docker end-to-end.
+docker-compose.yml    Runs the backend locally in Docker.
 ```
+
+Each folder's own README has the details.
+
+## How the pieces connect
+
+```
+ESP32-CAM  --HTTP POST image-->  FastAPI (server/)  --WebSocket-->  Dashboard (frontend/)
+                                   MobileNetV3 fill-level   /ws/bedfeed    live bed cards
+                                   model, SQLite storage,   /ws/readings   (+ Supabase for
+                                   CSV/Excel export                        auth/roles/settings)
+```
+
+- `POST /api/v1/frames` takes an image, runs it through the real trained
+  model (`server/app/cv/real_frame_processor.py`, see
+  `server/CV_INTEGRATION.md`), stores the reading and broadcasts it.
+- `server/app/bedfeed.py` is the seam: it reshapes a reading into the
+  `{id, bed, patient, fluid, flow, level, status, ...}` message that
+  `frontend/src/lib/fluidwatch.ts`'s `applyLiveUpdate()` expects. A device
+  the dashboard hasn't seen yet becomes a new bed card automatically.
+- The model has been spot-checked end-to-end but **not validated against
+  real IV bag photos at scale** - see CV_INTEGRATION.md's caveats before
+  trusting specific numbers in a demo.
+
+## Running locally
+
+1. **Backend** - `cd server`, create a venv, `pip install -r requirements.txt`,
+   `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
+   (see `server/README.md`). Or with Docker, from the repo root:
+   `API_AUTH_TOKEN=<token> docker compose up --build`.
+2. **Dashboard** - `cd frontend && npm i && npm run dev`, sign in, then on
+   `/dashboard` click "Connect ward server".
+3. **Firmware** - `cd firmware/esp32-cam`, copy
+   `include/secrets.h.example` to `include/secrets.h`, fill in WiFi, the
+   backend URL and the same `API_AUTH_TOKEN`, then `pio run -t upload`
+   (wiring and flash-mode steps in its README). Without hardware, upload
+   any image to `POST /api/v1/frames` from the backend's `/docs` page.
 
 ## Testing & CI
 
@@ -22,214 +60,28 @@ Every push/PR to `main` runs `.github/workflows/ci.yml`:
 | Job | What it checks |
 | --- | --- |
 | Backend | `pytest` in `server/` - API, auth, WebSocket feeds, exports, CV pipeline, real-model smoke tests |
-| Dashboard | `lint`, `typecheck`, Vitest unit tests, production build |
-| Firmware | `pio run` compiles the ESP32-CAM firmware (against `secrets.h.example`) |
+| Dashboard | `lint`, `typecheck`, Vitest unit tests, production build in `frontend/` |
+| Firmware | `pio run` compiles `firmware/esp32-cam` (against `secrets.h.example`) |
 | End-to-end | Builds the backend Docker image, runs it, and drives it from outside: frame upload → real model → stored reading → `/ws/bedfeed` message → REST + CSV/XLSX exports (`server/e2e/smoke_test.py`) |
 
 Locally:
 
 ```sh
-npm test                 # dashboard unit tests (src/**/*.test.ts)
-npm run lint && npm run typecheck
+cd frontend && npm test && npm run lint && npm run typecheck
 
 cd server
 pip install -r requirements-dev.txt
-pytest                   # backend tests
+pytest
 
-API_AUTH_TOKEN=dev-token docker compose up --build    # from the repo root
-python server/e2e/smoke_test.py --token dev-token     # in another terminal
+# from the repo root - full stack in Docker, then the E2E check against it
+API_AUTH_TOKEN=dev-token docker compose up --build
+python server/e2e/smoke_test.py --token dev-token
 ```
-
-## Built with
-
-TanStack Start · TypeScript · React · Tailwind CSS · Supabase (auth/roles) ·
-a raw WebSocket to `server/`'s `/ws/bedfeed` (live telemetry)
-
-## Local development
-
-Requires Node.js.
-
-```sh
-cd frontend
-npm i
-npm run dev
-```
-
-`.env` is already committed with a working Supabase URL + publishable key
-(safe to expose - it's an RLS-protected anon key, not a secret) pointing at
-the project described in Option A below. Only touch it if you're doing
-Option B.
-
-Opens on `http://localhost:8080`. Sign up - **the first account created
-becomes the ward admin** (see the `handle_new_user` trigger in
-`supabase/migrations/`).
-
-To see live device data instead of the built-in simulator: run `server/`
-(`uvicorn app.main:app --port 8000`, see `server/README.md`), sign in here,
-go to `/dashboard`, and click **"Connect ward server."** Without a live
-connection the dashboard free-runs a client-side random-walk simulator on
-six demo beds so the UI is never empty.
-
-## Environment variables
-
-| Variable | Used by | Notes |
-|---|---|---|
-| `VITE_SUPABASE_URL` | browser bundle | baked in at build time |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | browser bundle | baked in at build time |
-| `SUPABASE_URL` | SSR (server-side render) | same value, no `VITE_` prefix |
-| `SUPABASE_PUBLISHABLE_KEY` | SSR | same value, no `VITE_` prefix |
-| `SUPABASE_PROJECT_ID` | tooling (e.g. `supabase` CLI) | |
-
-Locally, `.env` covers all of these (see `src/integrations/supabase/client.ts`,
-which reads `import.meta.env` client-side and falls back to `process.env`
-server-side). **On a real deployment these are two different mechanisms** -
-see [Deployment](#deployment) below.
-
-There's also a `client.server.ts` with a `supabaseAdmin` service-role client
-for server-only admin operations that bypass RLS. Nothing in this app uses
-it yet - if you add something that does, it needs `SUPABASE_SERVICE_ROLE_KEY`
-set (never expose that key to the browser bundle).
-
-## Configuring Supabase
-
-### Option A - use the existing project (default, recommended)
-
-`.env` already points at a pre-existing Supabase project
-(`nkcweoiecmfxpkegytww`) with the schema below applied. If you're working
-against that project, there's nothing to set up locally - just `npm run dev`.
-Two things worth doing once you're deploying it for real, though:
-
-- **Rename it** - `nkcweoiecmfxpkegytww` is just an auto-generated project
-  ref and can't be changed, but the human-readable label shown in the
-  dashboard can: **Project Settings → General → Project Name** → e.g.
-  "FluidWatch" or "Smart IV Drip System DB". This is cosmetic only - it
-  doesn't touch the URL, keys, or anything in `.env`.
-- **Add your production URL** once you have a Vercel deployment - see
-  "URL Configuration" under Option B below (same steps, same project).
-
-### Option B - stand up your own project
-
-Needed if you're forking this for a deployment that shouldn't share auth/data
-with the original project.
-
-1. Create a project at [supabase.com](https://supabase.com/dashboard) (or
-   `supabase init` + `supabase start` locally with the CLI).
-2. Apply the schema - open the SQL Editor and run each file in
-   `supabase/migrations/` **in filename order** (they're timestamped, so
-   sorting the folder gives the right order). This creates:
-   - `profiles`, `user_roles` (+ `app_role` enum `admin`/`nurse`) - staff
-     accounts, RLS'd so only admins can change roles.
-   - `ward_settings` - a single-row table (`watch_level`, `critical_level`,
-     `min_flow`, `ws_url`, `sound_alerts`) editable from `/admin`, read by
-     the dashboard on load.
-   - `handle_new_user` trigger - auto-creates a `profiles` row and makes the
-     *first* signup an admin, everyone after a nurse.
-3. **URL Configuration** (Supabase Dashboard → **Authentication → URL
-   Configuration**):
-   - **Site URL**: your production URL (e.g. `https://your-app.vercel.app`).
-   - **Redirect URLs**: add `http://localhost:8080/**` (local dev),
-     `https://your-app.vercel.app/**` (production), and
-     `https://*.vercel.app/**` if you want Vercel's per-branch preview
-     deployments to be able to sign in too.
-   Email confirmation is on by default; turn it off under **Auth →
-   Providers → Email** if you want signups usable immediately during
-   testing.
-4. **Google sign-in** ("Continue with Google" on `/auth`) calls
-   `supabase.auth.signInWithOAuth({ provider: "google" })` directly. It
-   won't work until you configure a Google OAuth
-   client and enable the provider in Supabase:
-   1. Supabase Dashboard → **Authentication → Providers → Google** →
-      enable it. Copy the **Callback URL (for OAuth)** shown there -
-      it looks like `https://<project-ref>.supabase.co/auth/v1/callback`.
-   2. [Google Cloud Console](https://console.cloud.google.com/) → create/
-      select a project → **APIs & Services → OAuth consent screen** →
-      configure it (External, app name, support email - defaults are fine
-      for testing).
-   3. **APIs & Services → Credentials → Create Credentials → OAuth client
-      ID** → Application type **Web application** → under **Authorized
-      redirect URIs**, paste the callback URL from step 1.
-   4. Copy the generated **Client ID** and **Client Secret** back into
-      Supabase's Google provider config from step 1 → **Save**.
-   Until this is done, the button will show a "Google sign-in failed"
-   toast - email/password sign-in is unaffected either way.
-5. `cp .env.example .env` and fill in the new project's URL and publishable
-   (`anon`) key from **Settings → API** (both the `VITE_` and non-`VITE_`
-   variants - see the table above).
-6. Update `ward_settings.ws_url`'s default if your backend won't run on
-   `localhost:8000` - either edit the value directly in the SQL Editor, or
-   change it after signing in via `/admin`.
 
 ## Deployment
 
-Deployed on **Vercel**. Deploying this dashboard
-makes it reachable, but it's only useful once `server/` (the WebSocket
-source) is *also* running somewhere public over HTTPS - see
-`server/README.md`'s Deploying section (Render). Without that, a deployed
-dashboard just runs the built-in demo simulator.
-
-`vite.config.ts` hard-pins the build target: `nitro: { preset: "vercel" }`.
-`npm run build` produces `.vercel/output/` in Vercel's Build Output API v3
-shape directly - Vercel's platform deploys that as-is once it sees it,
-skipping its own framework auto-build.
-
-### Deploy via the Vercel dashboard (recommended)
-
-1. [vercel.com](https://vercel.com) → **Add New → Project** → import this
-   repo (`PragnyaKhandelwal/SIH26`).
-2. **Root Directory**: leave as the repo root (this git repo's root *is*
-   `frontend/` - there's no nested folder to point at).
-3. **Build Command**: `npm run build` (auto-detected from `package.json`).
-   **Install Command**: `npm install`. Output Directory doesn't matter -
-   the Build Output API takes over.
-4. **Environment Variables** - add all six from `.env`, for Production *and*
-   Preview: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`,
-   `VITE_SUPABASE_PROJECT_ID`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
-   `SUPABASE_PROJECT_ID`. Unlike Cloudflare, Vercel uses the same
-   dashboard env vars for both build time (`VITE_*`, baked into the
-   client bundle) and runtime (the rest, read by the SSR function) - no
-   separate secrets step.
-5. Deploy. Vercel assigns a `*.vercel.app` domain immediately.
-6. Add that domain to Supabase's **Auth → URL Configuration** (see
-   Configuring Supabase below) - sign-in will fail until you do.
-7. Point `ward_settings.ws_url` (via `/admin`) at the deployed backend's
-   `wss://` URL once it's up - `ws://localhost:...` only works locally.
-
-### Deploy via CLI
-
-```sh
-npx vercel login    # one-time, opens a browser to authorize your account
-npx vercel --prod
-```
-
-The Vercel CLI runs its own build (respecting `vite.config.ts`'s `vercel`
-preset) and links/creates the project interactively on first run.
-
-## Integration with the Smart IV Drip System
-
-Two separate data sources feed this dashboard:
-
-- **Staff auth, roles, and ward settings** - Supabase (`profiles`,
-  `user_roles`, `ward_settings` tables; see Configuring Supabase above).
-- **Live device telemetry** - `src/routes/_authenticated/dashboard.tsx`
-  opens a raw WebSocket to `ward_settings.ws_url` (admin-editable from
-  `/admin`, defaults to `DEFAULT_WS_URL` in `src/lib/fluidwatch.ts`) and
-  expects messages shaped `{id, bed, patient, fluid, flow, level, status}`
-  (single object or array). `server/app/routers/ws.py`'s `/ws/bedfeed`
-  produces exactly this, translating each ESP32 reading via
-  `server/app/bedfeed.py`.
-
-`src/lib/fluidwatch.ts`'s `applyLiveUpdate()` merges incoming messages into
-the bed list by `id`: an id that matches an existing card (including the 6
-demo beds seeded in `INITIAL_BEDS`) updates it in place, and an unrecognized
-id (a real device's `DEVICE_ID`) is added as a new card - no manual
-provisioning needed on the frontend side when a new IV stand comes online.
-Alert thresholds (`WATCH`/`CRITICAL` cutoffs on fluid level and flow) come
-from `ward_settings` (admin-editable) rather than being hardcoded - both the
-live path and the demo simulator use the same `deriveStatus()`.
-
-To see it live: run `server/` (`uvicorn app.main:app --port 8000`), flash
-`firmware/`, run this dashboard, sign in, and hit "Connect ward server" on
-`/dashboard`. See `server/README.md` for the full walkthrough. Note the
-backend now requires a bearer token by default (auto-generated into
-`server/.env` on first run) - the firmware's `secrets.h` needs the same
-value in `API_AUTH_TOKEN`.
+- **Dashboard** → Vercel, project Root Directory `frontend` (see
+  `frontend/README.md`).
+- **Backend** → Render, Root Directory `server` (see `server/README.md`).
+- **Firmware** → flashed over USB-serial; `secrets.h` points it at the
+  deployed backend.

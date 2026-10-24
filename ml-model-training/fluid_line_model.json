@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "feature_names": [
+    "horizontal_edge",
+    "gray_change",
+    "saturation_change",
+    "value_change",
+    "two_sided_support"
+  ],
+  "weights": [
+    0.2516055405139923,
+    0.5116587281227112,
+    1.0,
+    0.7495419979095459,
+    0.3345990478992462
+  ],
+  "positive_mean": [
+    0.40858930349349976,
+    0.703743040561676,
+    0.9157869219779968,
+    0.8289298415184021,
+    0.99424147605896
+  ],
+  "negative_mean": [
+    0.1889732927083969,
+    0.23525260388851166,
+    0.12000913918018341,
+    0.18332138657569885,
+    0.6236299276351929
+  ],
+  "training_images": 8,
+  "note": "Learned from manually marked fluid boundaries. Re-learn if camera position, bottle type, or lighting changes."
+}

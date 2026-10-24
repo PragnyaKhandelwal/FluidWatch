@@ -14,8 +14,7 @@ version).
   4-class head). Test MAE ~3.8%, RMSE ~8.9% on the training team's
   held-out set. Full training provenance, the training scripts, and the
   earlier classifier/classical-CV attempts it superseded live in
-  `ml-model-training/` at the repo root (not itself in git - see that
-  folder's own README).
+  `ml-model-training/` at the repo root (see that folder's own README).
 - **Integration**: `app/cv/real_frame_processor.py`'s `RealFrameProcessor`
   loads the model once at import time (not per-request), decodes the
   uploaded image, replicates the exact preprocessing the model was
@@ -49,7 +48,7 @@ limits once actually deployed there.
 
 Unchanged - still the easiest way to try it:
 
-1. `cd frontend/server`, activate the venv, `pip install -r requirements.txt`,
+1. `cd server`, activate the venv, `pip install -r requirements.txt`,
    `uvicorn app.main:app --reload --port 8000`.
 2. Open `http://localhost:8000/docs`, find `POST /api/v1/frames`, "Try it
    out", set any `device_id`, upload a real photo, Execute.
