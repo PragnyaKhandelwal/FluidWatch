@@ -12,5 +12,5 @@ openpyxl>=3.1
 # benefit on a CPU-only host like Render's free tier.
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch>=2.2
-torchvision>=0.17
+torchvision>=0.29.1+cpu
 pillow>=10.0
