@@ -11,6 +11,6 @@ openpyxl>=3.1
 # the default PyPI torch build bundles CUDA and is enormous for no
 # benefit on a CPU-only host like Render's free tier.
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch>=2.2
+torch>=2.14.1+cpu
 torchvision>=0.17
 pillow>=10.0
