@@ -18,6 +18,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # Dependabot rewrites these as e.g. `torch>=2.14.1+cpu`, which pip
+      # rejects (a +cpu local label is only valid with ==). Upgrade torch
+      # deliberately, re-checking the saved model checkpoint loads.
+      - dependency-name: torch
+      - dependency-name: torchvision
 
   - package-ecosystem: github-actions
     directory: /

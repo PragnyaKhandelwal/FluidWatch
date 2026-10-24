@@ -95,8 +95,18 @@ jobs:
           python-version: "3.11"
       - run: pip install httpx websockets pillow
       - run: python server/e2e/smoke_test.py --base-url http://localhost:8000 --token "$API_AUTH_TOKEN"
+      # Docker reports "starting" until its first HEALTHCHECK probe, which a
+      # fast smoke test can finish before - wait for a verdict, don't race it.
       - name: Container health
-        run: test "$(docker inspect -f '{{.State.Health.Status}}' backend)" = healthy
+        run: |
+          for _ in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' backend)
+            [ "$status" = healthy ] && exit 0
+            [ "$status" = unhealthy ] && break
+            sleep 2
+          done
+          echo "Container health: $status"
+          exit 1
       - name: Backend logs
         if: always()
         run: docker logs backend
