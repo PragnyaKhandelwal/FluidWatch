@@ -10,5 +10,5 @@ routeTree.gen.ts
 .tanstack
 server
 firmware
-# Generated/managed by Lovable + Supabase - reformatting just churns on regen.
+# Supabase-generated clients and types - reformatting just churns on regen.
 src/integrations

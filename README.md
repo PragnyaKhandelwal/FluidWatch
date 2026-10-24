@@ -1,11 +1,5 @@
 # FluidWatch — Ward Dashboard
 
-> [!NOTE]
-> This project was scaffolded with [Lovable](https://lovable.dev) and stays
-> connected to it - pushes to the connected branch sync back into the
-> Lovable editor. See `AGENTS.md` before rewriting published history
-> (force-push, rebase, amend of pushed commits).
-
 The staff-facing dashboard for the Smart IV Drip System project: sign in,
 see every bed's live fluid level/flow rate, get alerted when one goes
 critical. This repo root is the dashboard itself; `server/` (FastAPI
@@ -141,8 +135,8 @@ with the original project.
    Providers → Email** if you want signups usable immediately during
    testing.
 4. **Google sign-in** ("Continue with Google" on `/auth`) calls
-   `supabase.auth.signInWithOAuth({ provider: "google" })` directly (no
-   Lovable dependency). It won't work until you configure a Google OAuth
+   `supabase.auth.signInWithOAuth({ provider: "google" })` directly. It
+   won't work until you configure a Google OAuth
    client and enable the provider in Supabase:
    1. Supabase Dashboard → **Authentication → Providers → Google** →
       enable it. Copy the **Callback URL (for OAuth)** shown there -
@@ -167,7 +161,7 @@ with the original project.
 
 ## Deployment
 
-Deployed on **Vercel**, not Lovable/Cloudflare. Deploying this dashboard
+Deployed on **Vercel**. Deploying this dashboard
 makes it reachable, but it's only useful once `server/` (the WebSocket
 source) is *also* running somewhere public over HTTPS - see
 `server/README.md`'s Deploying section (Render). Without that, a deployed
