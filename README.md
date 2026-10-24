@@ -5,6 +5,16 @@ backend scores each photo with a trained fill-level model, derives volume,
 flow rate and status, and pushes live updates to a web dashboard that shows
 nursing staff every bed and raises an alert when one goes critical.
 
+**Live:** https://frontend-topaz-xi-xu5rpbpic5.vercel.app
+
+![FluidWatch landing page](docs/screenshots/landing.png)
+
+<p align="center">
+  <img src="docs/screenshots/sign-in.png" alt="Staff sign-in" width="66%">
+  &nbsp;
+  <img src="docs/screenshots/mobile.png" alt="Landing page on a phone" width="28%">
+</p>
+
 This README is the project's only documentation file.
 
 - [Repository layout](#repository-layout)
@@ -16,6 +26,7 @@ This README is the project's only documentation file.
 - [Database & auth — `supabase/`](#database--auth--supabase)
 - [Firmware — `firmware/esp32-cam/`](#firmware--firmwareesp32-cam)
 - [Testing & CI](#testing--ci)
+- [Security](#security)
 - [Deployment](#deployment)
 
 ## Repository layout
@@ -28,7 +39,8 @@ supabase/             Database schema (migrations) for staff auth, roles
                       and ward settings. Supabase CLI project.
 firmware/esp32-cam/   ESP32-CAM firmware (PlatformIO) - capture + upload.   -> flashed over USB-serial
 ml-model-training/    Training scripts and model artifacts.
-.github/workflows/    CI.
+.github/              CI workflow and Dependabot config.
+docs/screenshots/     Images used in this README.
 docker-compose.yml    Runs the backend locally in Docker.
 ```
 
@@ -322,10 +334,15 @@ standalone bring-up sketches, kept as `.txt` so they aren't built.
 
 | Job | Checks |
 |---|---|
-| Backend | `pytest` in `server/` (63 tests): every endpoint, auth, both WebSocket feeds, exports, reading derivation, path sanitizing, real-model smoke tests |
+| Backend | `ruff` lint (rules in `server/ruff.toml`), then `pytest` in `server/` (63 tests): every endpoint, auth, both WebSocket feeds, exports, reading derivation, path sanitizing, real-model smoke tests |
 | Dashboard | `lint`, `typecheck`, Vitest (37 tests for the telemetry logic), production build in `frontend/` |
 | Firmware | `pio run` compiles `firmware/esp32-cam` against `secrets.h.example` |
 | End-to-end | Builds the backend Docker image, runs it, then `server/e2e/smoke_test.py` drives it from outside: frame upload → model → stored reading → `/ws/bedfeed` message → latest frame, devices, CSV/XLSX |
+| Security | See [Security](#security) |
+
+Vercel also builds a preview of every PR. The `main` branch ruleset requires
+the Backend, Dashboard, Firmware, End-to-end and Vercel checks to pass before
+a PR can merge, and blocks force-pushes and deletion of `main`.
 
 To run the same checks locally:
 
@@ -334,12 +351,37 @@ cd frontend && npm test && npm run lint && npm run typecheck
 
 cd server
 pip install -r requirements-dev.txt
+ruff check .
 pytest                      # throwaway DB/frames dir; never touches data/ or .env
 
 # from the repo root
 API_AUTH_TOKEN=dev-token docker compose up --build
 python server/e2e/smoke_test.py --token dev-token
 ```
+
+## Security
+
+GitHub's built-in code and secret scanning aren't available on this private
+repo's plan, so CI's **Security** job covers the same ground for free:
+
+- **Secrets:** [gitleaks](https://github.com/gitleaks/gitleaks) scans the
+  entire git history. The only allow-listed value is the Supabase
+  publishable (anon) key in `frontend/.env`, which is public by design: it
+  ships in the browser bundle, and Row Level Security protects the data
+  (`.gitleaks.toml`). Real secrets live only in gitignored files:
+  `server/.env` and `firmware/esp32-cam/include/secrets.h`.
+- **Vulnerable dependencies:** `pip-audit` (backend) and `bun audit`
+  (dashboard; fails on high or critical). `frontend/package.json`
+  `overrides` pins patched versions of transitive build-tool packages.
+  `torch`/`torchvision` CPU wheels aren't on PyPI, so pip-audit skips them.
+- **Dependabot:** weekly update PRs for `frontend/`, `server/` and the CI
+  actions (`.github/dependabot.yml`), plus automatic security-fix PRs when
+  an advisory lands. torch is excluded from these and upgraded by hand
+  against the saved model checkpoint.
+
+Backend API writes require the bearer token (`API_AUTH_TOKEN`); uploaded
+device IDs are sanitized before they become file names; corrupt uploads are
+rejected with 422.
 
 ## Deployment
 
