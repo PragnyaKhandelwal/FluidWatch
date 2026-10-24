@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# Test-only - not needed to run the server.
+pytest>=8.0
+httpx>=0.27
