@@ -4,8 +4,8 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ReadingIn(BaseModel):
-    """What the ESP32 firmware POSTs. Must match CloudClient::sendReading()
-    in firmware/esp32-iv-monitor/src/cloud_client.cpp."""
+    """What a device POSTs to /api/v1/readings. (The ESP32-CAM firmware
+    uploads frames instead - app/cv/reading_builder.py builds this for it.)"""
 
     device_id: str
     timestamp_ms: int

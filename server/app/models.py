@@ -7,9 +7,9 @@ from .db import Base
 
 
 class Reading(Base):
-    """One IV drip reading. Field names mirror the ESP32 firmware's
-    IVDripReading struct (see firmware/esp32-iv-monitor/include/data_provider.h)
-    and the JSON payload it POSTs - keep them in sync."""
+    """One IV drip reading. Field names come from an earlier ESP32-S3
+    prototype's IVDripReading struct and match schemas.ReadingIn - keep
+    the two in sync."""
 
     __tablename__ = "readings"
 

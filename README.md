@@ -9,10 +9,42 @@
 The staff-facing dashboard for the Smart IV Drip System project: sign in,
 see every bed's live fluid level/flow rate, get alerted when one goes
 critical. This repo root is the dashboard itself; `server/` (FastAPI
-backend) lives alongside it as a subfolder so both deploy from one repo
-(dashboard → Vercel, backend → Render). `firmware/` (ESP32-S3) is a
-separate, not-yet-git-tracked piece one level up - see the
-[root README](../README.md) for how everything fits together.
+backend) and `firmware/esp32-cam/` (the ESP32-CAM camera unit) live
+alongside it as subfolders so everything ships from one repo (dashboard →
+Vercel, backend → Render).
+
+```
+src/                  Dashboard (this app)
+server/               FastAPI backend + fill-level model     - see server/README.md
+firmware/esp32-cam/   ESP32-CAM capture/upload firmware       - see its README.md
+.github/workflows/    CI (tests, builds, Docker end-to-end)
+docker-compose.yml    Run the backend locally in Docker
+```
+
+## Testing & CI
+
+Every push/PR to `main` runs `.github/workflows/ci.yml`:
+
+| Job | What it checks |
+| --- | --- |
+| Backend | `pytest` in `server/` - API, auth, WebSocket feeds, exports, CV pipeline, real-model smoke tests |
+| Dashboard | `lint`, `typecheck`, Vitest unit tests, production build |
+| Firmware | `pio run` compiles the ESP32-CAM firmware (against `secrets.h.example`) |
+| End-to-end | Builds the backend Docker image, runs it, and drives it from outside: frame upload → real model → stored reading → `/ws/bedfeed` message → REST + CSV/XLSX exports (`server/e2e/smoke_test.py`) |
+
+Locally:
+
+```sh
+npm test                 # dashboard unit tests (src/**/*.test.ts)
+npm run lint && npm run typecheck
+
+cd server
+pip install -r requirements-dev.txt
+pytest                   # backend tests
+
+API_AUTH_TOKEN=dev-token docker compose up --build    # from the repo root
+python server/e2e/smoke_test.py --token dev-token     # in another terminal
+```
 
 ## Built with
 

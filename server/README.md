@@ -7,10 +7,11 @@ EMR/records purposes. Replaces the earlier `mock_server.py` stand-in.
 ## Layout
 
 - `app/models.py` / `app/schemas.py` - the `Reading` shape. Field names
-  originally mirrored the ESP32-S3 firmware's `IVDripReading` struct
-  (now `firmware/archived-esp32-s3-ov3660/` - superseded by an
-  ESP32-CAM/OV5640 board, new firmware not written yet); keep the new
-  firmware's JSON payload in sync with this shape once it exists.
+  originally mirrored an earlier ESP32-S3 prototype's `IVDripReading`
+  struct. The current ESP32-CAM firmware (`firmware/esp32-cam/`) uploads
+  images to `/api/v1/frames` instead, and the server builds the reading
+  itself - `POST /api/v1/readings` stays for any device that reports
+  numbers directly.
 - `app/routers/readings.py` - ingest (`POST /api/v1/readings`), list, latest,
   and CSV/Excel export.
 - `app/routers/ws.py` - two WebSocket feeds, both broadcast the instant a
@@ -75,13 +76,41 @@ a new one generated.
 ## Verifying against the firmware and dashboard
 
 1. Run `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000` here.
-2. Flash the firmware (see `firmware/esp32-iv-monitor/README.md`); it POSTs
-   to `SERVER_URL` from `secrets.h` every 5s.
+2. Flash the firmware (see `firmware/esp32-cam/README.md`); it uploads a
+   photo to `SERVER_URL` from `secrets.h` on its capture timer.
 3. Watch readings arrive at `GET http://localhost:8000/api/v1/readings/latest`
    or in `/docs`.
 4. Run the dashboard (see `frontend/README.md`) and hit "Connect ward
    server" - it points at `ws://localhost:8000/ws/bedfeed` by default and a
    new bed card appears for the ESP32's `DEVICE_ID` as readings arrive.
+
+## Tests
+
+```
+pip install -r requirements-dev.txt
+pytest
+```
+
+`tests/` covers every endpoint (auth, validation, ordering, exports), both
+WebSocket feeds, the bedfeed translation, `reading_builder`'s
+status/flow derivation, frame storage path sanitizing, and smoke tests
+that the real model checkpoint loads and returns sane output. Tests use a
+throwaway SQLite DB and frames dir - they never touch `data/` or `.env`.
+
+`e2e/smoke_test.py` is different: it drives an already-running server
+from the outside (CI runs it against the Docker image).
+
+## Docker
+
+```
+docker build -t iv-drip-backend .
+docker run -p 8000:8000 -e API_AUTH_TOKEN=<token> -v iv-data:/app/data iv-drip-backend
+```
+
+or `API_AUTH_TOKEN=<token> docker compose up --build` from the repo root.
+Always pass `API_AUTH_TOKEN` to a container - the auto-generate-into-.env
+fallback would otherwise mint a new token each time the container is
+recreated and lock the ESP32 out.
 
 ## Deploying (Render free tier)
 
