@@ -24,9 +24,15 @@
 #define PCLK_GPIO_NUM 22
 
 // Flash LED - GPIO4. Shares the SD card's data bus, so it'll flicker if
-// you're also writing to an SD card. Not driven by this firmware by
-// default (see main.cpp) - the IV stand doesn't need a flash for a
-// normally-lit room, and it's one less thing to get wrong under time
-// pressure. Uncomment the digitalWrite calls in main.cpp if low-light
-// conditions need it.
+// you're also writing to an SD card. Used in main.cpp as a debug signal:
+// briefly flashes every time a photo is successfully captured, so you
+// can visually confirm capture is happening without a serial monitor
+// attached.
 #define FLASH_LED_GPIO_NUM 4
+
+// Small red status LED next to the reset button - GPIO33. Inverted
+// logic: LOW = on, HIGH = off. Used in main.cpp to show boot/WiFi
+// status: off while disconnected, solid on once WiFi is connected -
+// confirms at a glance the board is powered and actually running,
+// independent of the capture flash above.
+#define STATUS_LED_GPIO_NUM 33

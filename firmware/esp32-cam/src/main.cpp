@@ -12,6 +12,21 @@ unsigned long lastCaptureMs = 0;
 
 namespace {
 
+// STATUS_LED_GPIO_NUM (GPIO33) is inverted: LOW = on, HIGH = off.
+void setStatusLed(bool on) {
+    digitalWrite(STATUS_LED_GPIO_NUM, on ? LOW : HIGH);
+}
+
+// Brief flash on FLASH_LED_GPIO_NUM (GPIO4) so a successful capture is
+// visible without a serial monitor attached. Short enough not to show
+// up as a lit bag/bottle in the photo itself (called after fb_get()
+// returns, so it doesn't affect the frame that was just captured).
+void flashCaptureIndicator() {
+    digitalWrite(FLASH_LED_GPIO_NUM, HIGH);
+    delay(120);
+    digitalWrite(FLASH_LED_GPIO_NUM, LOW);
+}
+
 // Server-side query params only need spaces encoded in practice (bed
 // labels, patient names) - full percent-encoding would need more code
 // than this project has time for. Stick to plain text without other
@@ -136,6 +151,11 @@ void setup() {
     delay(300);
     Serial.println("\n[FluidWatch ESP32-CAM] booting...");
 
+    pinMode(STATUS_LED_GPIO_NUM, OUTPUT);
+    pinMode(FLASH_LED_GPIO_NUM, OUTPUT);
+    setStatusLed(false);
+    digitalWrite(FLASH_LED_GPIO_NUM, LOW);
+
     if (!initCamera()) {
         Serial.println("[main] camera init failed - check the ribbon cable and that PSRAM is enabled, halting");
         while (true) {
@@ -145,10 +165,12 @@ void setup() {
     Serial.println("[Camera] ready");
 
     wifiManager.begin(WIFI_SSID, WIFI_PASSWORD);
+    setStatusLed(wifiManager.isConnected());
 }
 
 void loop() {
     wifiManager.ensureConnected();
+    setStatusLed(wifiManager.isConnected());
 
     unsigned long now = millis();
     if (now - lastCaptureMs < SEND_INTERVAL_MS) {
@@ -166,6 +188,7 @@ void loop() {
         Serial.println("[main] camera capture failed");
         return;
     }
+    flashCaptureIndicator();
 
     uploadFrame(fb);
     esp_camera_fb_return(fb);
