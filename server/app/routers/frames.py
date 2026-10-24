@@ -3,6 +3,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from ..bedfeed import to_bed_payload
+from ..cv.base import InvalidFrameError
 from ..cv.pipeline import active_processor
 from ..cv.reading_builder import build_reading, prune_old_readings
 from ..db import get_db
@@ -35,9 +36,15 @@ async def ingest_frame(
     for this device_id - see frame_storage.py) so GET /latest can serve
     it back for display on the dashboard."""
     frame_bytes = await file.read()
+
+    # Process before saving, so an unreadable upload never replaces the
+    # device's last good frame on disk.
+    try:
+        result = active_processor.process(device_id, frame_bytes)
+    except InvalidFrameError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     save_latest_frame(device_id, frame_bytes)
 
-    result = active_processor.process(device_id, frame_bytes)
     reading_in = build_reading(
         db,
         device_id,

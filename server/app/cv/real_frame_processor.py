@@ -16,10 +16,10 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from torchvision import models, transforms
 
-from .base import FrameProcessor, FrameResult
+from .base import FrameProcessor, FrameResult, InvalidFrameError
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,13 @@ def _prepare_image(frame_bytes: bytes) -> torch.Tensor:
     """Same preprocessing as training/test_v2.py's prepare_image(): square
     canvas, aspect-preserving thumbnail, black-padded, ImageNet-normalized.
     Must stay in sync with that - the model was trained on exactly this."""
-    with Image.open(io.BytesIO(frame_bytes)) as im:
+    try:
+        im = Image.open(io.BytesIO(frame_bytes))
+        im.load()
+    except (UnidentifiedImageError, OSError) as exc:
+        raise InvalidFrameError("uploaded file is not a readable image") from exc
+
+    with im:
         im = im.convert("RGB")
         im.thumbnail((_IMAGE_SIZE, _IMAGE_SIZE), Image.Resampling.LANCZOS)
 

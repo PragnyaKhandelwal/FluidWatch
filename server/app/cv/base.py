@@ -2,6 +2,12 @@ from abc import ABC, abstractmethod
 from typing import NamedTuple
 
 
+class InvalidFrameError(ValueError):
+    """The uploaded bytes aren't a decodable image. Implementations raise
+    this (not their imaging library's own error) so the router can turn
+    it into a 422 instead of a 500."""
+
+
 class FrameResult(NamedTuple):
     fill_percent: float
     # Optional auxiliary classification (e.g. "empty"/"50%"/"80%"/"full")
