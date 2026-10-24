@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -49,7 +49,7 @@ def build_reading(
         select(Reading).where(Reading.device_id == device_id).order_by(Reading.received_at.desc())
     ).first()
 
-    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
     flow_rate_ml_per_hr = 0.0
     if prev is not None and now_ms > prev.timestamp_ms:
         elapsed_hr = (now_ms - prev.timestamp_ms) / 3_600_000

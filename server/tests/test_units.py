@@ -1,7 +1,7 @@
 """Pure-logic units: bedfeed translation, reading derivation, frame storage
 path sanitizing, config parsing."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -17,7 +17,7 @@ from .conftest import make_reading
 
 
 def _reading_out(**overrides) -> ReadingOut:
-    return ReadingOut(**make_reading(**overrides), id=1, received_at=datetime.now(timezone.utc))
+    return ReadingOut(**make_reading(**overrides), id=1, received_at=datetime.now(UTC))
 
 
 # --- bedfeed ----------------------------------------------------------------
@@ -56,7 +56,13 @@ def test_bedfeed_rounds_to_one_decimal():
 
 @pytest.mark.parametrize(
     "level, status, has_alert",
-    [(100, "NORMAL", False), (15.1, "NORMAL", False), (15, "LOW_LEVEL", True), (0.5, "EMPTY", True), (0, "EMPTY", True)],
+    [
+        (100, "NORMAL", False),
+        (15.1, "NORMAL", False),
+        (15, "LOW_LEVEL", True),
+        (0.5, "EMPTY", True),
+        (0, "EMPTY", True),
+    ],
 )
 def test_build_reading_status_thresholds(db, level, status, has_alert):
     r = reading_builder.build_reading(db, "D", level)
@@ -77,7 +83,7 @@ def test_build_reading_first_reading_has_no_flow(db):
 
 
 def test_build_reading_estimates_flow_from_previous(db):
-    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
     one_hour_ago = now_ms - 3_600_000
     prev = make_reading(device_id="D", timestamp_ms=one_hour_ago, volume_remaining_ml=400.0)
     db.add(Reading(**prev))
@@ -91,7 +97,7 @@ def test_build_reading_estimates_flow_from_previous(db):
 
 def test_build_reading_never_reports_negative_flow(db):
     # Bag replaced (level went *up*) - not a negative drip rate.
-    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
     db.add(Reading(**make_reading(device_id="D", timestamp_ms=now_ms - 60_000, volume_remaining_ml=10.0)))
     db.commit()
     assert reading_builder.build_reading(db, "D", 100).flow_rate_ml_per_hr == 0.0

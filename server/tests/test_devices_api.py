@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.models import Reading
 
@@ -24,7 +24,7 @@ def test_one_row_per_device_from_latest_reading(client):
 
 def test_device_goes_offline_after_window(client, db):
     stale = make_reading(device_id="OLD")
-    db.add(Reading(**stale, received_at=datetime.now(timezone.utc) - timedelta(minutes=5)))
+    db.add(Reading(**stale, received_at=datetime.now(UTC) - timedelta(minutes=5)))
     db.commit()
     client.post("/api/v1/readings", json=make_reading(device_id="NEW"), headers=AUTH)
 

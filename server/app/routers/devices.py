@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -27,10 +27,10 @@ def list_devices(db: Session = Depends(get_db)):
     for row in db.scalars(stmt).all():
         latest_by_device.setdefault(row.device_id, row)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     devices = []
     for row in latest_by_device.values():
-        received_at = row.received_at if row.received_at.tzinfo else row.received_at.replace(tzinfo=timezone.utc)
+        received_at = row.received_at if row.received_at.tzinfo else row.received_at.replace(tzinfo=UTC)
         devices.append(
             DeviceStatus(
                 device_id=row.device_id,

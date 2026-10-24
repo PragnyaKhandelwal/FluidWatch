@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -17,7 +17,7 @@ class Reading(Base):
     device_id: Mapped[str] = mapped_column(String, index=True)
     timestamp_ms: Mapped[int] = mapped_column(Integer)
     received_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True
     )
 
     fluid_level_percent: Mapped[float] = mapped_column(Float)
