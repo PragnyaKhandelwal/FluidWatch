@@ -1,7 +1,7 @@
 """Smoke tests for the real MobileNetV3 fill-level model. These check that
 the checkpoint loads against the architecture in real_frame_processor.py
 and produces sane output - not accuracy, which needs real labelled IV-bag
-photos (see CV_INTEGRATION.md)."""
+photos (see the README's "Fill-level model" caveat)."""
 
 import io
 

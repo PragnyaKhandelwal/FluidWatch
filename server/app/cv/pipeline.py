@@ -24,7 +24,8 @@ class MockFrameProcessor(FrameProcessor):
         return FrameResult(fill_percent=level, aux_class=aux_class)
 
 
-# The real model - see CV_INTEGRATION.md / real_frame_processor.py. Fall
-# back to `MockFrameProcessor()` here if you need the random-numbers path
-# again (e.g. the real model file isn't present locally).
+# The real model - see real_frame_processor.py and the README's
+# "Fill-level model" section. Fall back to `MockFrameProcessor()` here if
+# you need the random-numbers path again (e.g. the model file isn't
+# present locally).
 active_processor: FrameProcessor = RealFrameProcessor()

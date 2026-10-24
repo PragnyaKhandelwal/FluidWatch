@@ -30,7 +30,7 @@ async def ingest_frame(
     build_reading() (app/cv/reading_builder.py) turns that into a full
     reading - same DB row and broadcast as the ESP32 JSON path. Test this
     manually with any image via the file-upload widget at /docs, no
-    device required. See CV_INTEGRATION.md for how the model is wired in.
+    device required. See the README's "Fill-level model" section.
 
     The uploaded image itself is saved (overwriting any previous frame
     for this device_id - see frame_storage.py) so GET /latest can serve

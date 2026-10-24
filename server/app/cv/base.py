@@ -20,7 +20,7 @@ class FrameResult(NamedTuple):
 class FrameProcessor(ABC):
     """Turns a raw camera frame into a fluid-level reading. This is the
     *entire* contract a real CV/ML implementation needs to satisfy - see
-    CV_INTEGRATION.md for the full spec. Volume, flow rate, status and
+    the README's "Fill-level model" section. Volume, flow rate, status and
     defaults are derived centrally from fill_percent in
     app/cv/reading_builder.py, so an implementation here only ever needs
     to answer one real question: given this image, what's the fill
