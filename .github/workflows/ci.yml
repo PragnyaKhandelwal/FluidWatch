@@ -22,7 +22,7 @@ jobs:
         working-directory: server
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -58,7 +58,7 @@ jobs:
         working-directory: firmware/esp32-cam
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - uses: actions/cache@v6
@@ -90,7 +90,7 @@ jobs:
         run: |
           docker run -d --name backend -p 8000:8000 \
             -e API_AUTH_TOKEN="$API_AUTH_TOKEN" iv-drip-backend:ci
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - run: pip install httpx websockets pillow
