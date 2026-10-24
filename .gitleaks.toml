@@ -1,0 +1,7 @@
+# Secret scanning config for the CI "Security" job (gitleaks).
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Supabase publishable (anon) keys are public by design: they ship in the browser bundle, and Row Level Security protects the data."
+regexes = ['''sb_publishable_[A-Za-z0-9_-]+''']

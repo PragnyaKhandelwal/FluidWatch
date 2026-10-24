@@ -28,6 +28,7 @@ jobs:
           cache: pip
           cache-dependency-path: server/requirements*.txt
       - run: pip install -r requirements-dev.txt
+      - run: ruff check .
       - run: pytest
 
   frontend:
@@ -69,6 +70,32 @@ jobs:
       # secrets.h is gitignored - compile against the placeholder values.
       - run: cp include/secrets.h.example include/secrets.h
       - run: pio run
+
+  # Free stand-in for GitHub's code/secret scanning, which this private repo
+  # doesn't have: secrets across the whole git history, plus known-vulnerable
+  # dependencies in both the backend and the dashboard.
+  security:
+    name: Security (secret scan + dependency audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Secret scan (gitleaks, full history)
+        run: >-
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.28.0
+          git /repo --no-banner --redact --config /repo/.gitleaks.toml
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Backend dependency audit (pip-audit)
+        run: pip install pip-audit && pip-audit -r server/requirements.txt
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.1
+      - name: Dashboard dependency audit (bun audit, high+)
+        working-directory: frontend
+        run: bun audit --audit-level=high
 
   e2e:
     name: End-to-end (Docker image + live API/WebSocket smoke test)
