@@ -18,3 +18,4 @@ __pycache__/
 
 # Local copy of the training dataset (fetch_dataset.py) - lives in Supabase.
 ml-model-training/dataset/
+ml-model-training/shared_model_v*.pth

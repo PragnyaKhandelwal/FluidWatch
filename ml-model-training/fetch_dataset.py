@@ -77,6 +77,26 @@ def fetch_rows(client: httpx.Client, headers: dict, session: str | None, labelle
             return rows
 
 
+def sync_images(client: httpx.Client, headers: dict, rows: list[dict], images: Path) -> tuple[int, int]:
+    """Downloads any of `rows`' images not already present (same size) under
+    `images`. Returns (downloaded, skipped)."""
+    downloaded = skipped = 0
+    for i, row in enumerate(rows, 1):
+        target = images / row["storage_path"]
+        if target.exists() and target.stat().st_size == row["bytes"]:
+            skipped += 1
+            continue
+        res = client.get(f"/storage/v1/object/authenticated/{BUCKET}/{row['storage_path']}", headers=headers)
+        res.raise_for_status()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(res.content)
+        downloaded += 1
+        print(f"\r{i}/{len(rows)} images", end="", flush=True)
+    if downloaded:
+        print()
+    return downloaded, skipped
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--email", help="Your FluidWatch (admin) account email")
@@ -103,18 +123,7 @@ def main() -> None:
         if not rows:
             sys.exit("No frames visible. Either none are archived yet, or this account isn't an admin.")
 
-        downloaded = skipped = 0
-        for i, row in enumerate(rows, 1):
-            target = images / row["storage_path"]
-            if target.exists() and target.stat().st_size == row["bytes"]:
-                skipped += 1
-                continue
-            res = client.get(f"/storage/v1/object/authenticated/{BUCKET}/{row['storage_path']}", headers=headers)
-            res.raise_for_status()
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(res.content)
-            downloaded += 1
-            print(f"\r{i}/{len(rows)} images", end="", flush=True)
+        downloaded, skipped = sync_images(client, headers, rows, images)
 
     out.mkdir(parents=True, exist_ok=True)
     with (out / "labels.csv").open("w", newline="", encoding="utf-8") as f:
@@ -123,7 +132,7 @@ def main() -> None:
         writer.writerows(rows)
 
     total_mb = sum(r["bytes"] for r in rows) / 1_048_576
-    print(f"\n{len(rows)} frames ({total_mb:.1f} MB): {downloaded} downloaded, {skipped} already present.")
+    print(f"{len(rows)} frames ({total_mb:.1f} MB): {downloaded} downloaded, {skipped} already present.")
     print(f"Images: {images}\nLabels: {out / 'labels.csv'}")
 
 
