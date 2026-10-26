@@ -22,6 +22,7 @@ This README is the project's only documentation file.
 - [Quick start (local)](#quick-start-local)
 - [Backend — `server/`](#backend--server)
 - [Fill-level model — `server/app/cv/` + `ml-model-training/`](#fill-level-model)
+- [Team workflow: from first photo to a better model](#team-workflow-from-first-photo-to-a-better-model)
 - [Dashboard — `frontend/`](#dashboard--frontend)
 - [Database & auth — `supabase/`](#database--auth--supabase)
 - [Firmware — `firmware/esp32-cam/`](#firmware--firmwareesp32-cam)
@@ -288,6 +289,173 @@ python ml-model-training/shared_training.py download                   # best ve
   goes live.
 - **Not trained yet:** `label_yaw_deg` is collected, but the current
   architecture has no yaw head.
+
+## Team workflow: from first photo to a better model
+
+The whole team improves **one** model in turns. Each person captures a
+labelled session, trains the shared model on it, and the next person
+continues from the best version. Nothing is passed around by hand: photos,
+labels and every model version live in Supabase.
+
+**Who does what:**
+- **Lead (once):** grants access (step 0), picks the test sessions and runs
+  `init` (step 4), and ships the best model (step 6).
+- **Every teammate:** sets up once (step 1), then repeats steps 2–5 per
+  session.
+
+Work on the **`model-training`** branch; `main` is what's deployed.
+
+### 0. Access (lead, once)
+
+1. **GitHub:** add the teammate as a collaborator on the repo.
+2. **Supabase:** Organization → Team → **Invite** with the Developer role.
+   This lets them use the Table Editor and Storage, and copy the secret key.
+3. **Optional:** a FluidWatch dashboard account with the admin role (granted
+   at `/admin`). This is only needed for `fetch_dataset.py`, not for
+   training.
+
+### 1. Laptop setup (each teammate, once)
+
+```sh
+git clone https://github.com/PragnyaKhandelwal/FluidWatch.git
+cd FluidWatch
+git checkout model-training
+git config user.name "Your Name"          # shown in the model history
+python -m venv server/.venv
+server\.venv\Scripts\activate             # macOS/Linux: source server/.venv/bin/activate
+pip install -r server/requirements-dev.txt
+```
+
+Create `server/.env`. It's gitignored, so never commit it:
+
+```
+SUPABASE_URL=https://gkyynjhflsxebmdgatxd.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<Supabase → Project Settings → API Keys → secret key>
+```
+
+Check it works: `python ml-model-training/shared_training.py status`.
+
+### 2. Plan the session
+
+- **One session = one fixed setup:** bottle or bag type, lighting and
+  camera position. Change any of them, and start a new session.
+- **Name it** `YYYY-MM-DD-<name>-<condition>`, for example
+  `2026-10-27-riya-tubelight-500ml`.
+- **Full coverage per session:**
+  - **Fill levels** 100, 90, 80 … 0 %. Measure them; don't guess. Use the
+    volume left ÷ the bottle's capacity × 100, with a syringe or measuring
+    cylinder.
+  - **Yaw** (bag rotation) of 0, 20, 40, 60 and 80°.
+  - **About 2 minutes per level × yaw combination**, which is ~12 photos.
+  - That's ~660 photos and about 2 hours per full sweep. A partial sweep is
+    fine, as long as the team covers every level across its sessions.
+- **Variety across sessions is what makes the model generalise:**
+  - lighting: daylight, tube-light, dim, night
+  - bottle and bag types, and fluid colours
+  - backgrounds
+  - small differences in the mount
+- **Test sessions:** the lead keeps **1–2 full-coverage sessions, recorded
+  on a different day or setup**, as the permanent test set. Nobody ever
+  trains on them.
+
+### 3. Capture the session (at the IV stand)
+
+1. **Power the ESP32-CAM and check what it sees:**
+   https://sih26-7ru4.onrender.com/api/v1/frames/latest?device_id=IV-CAM-01
+   (refresh it; a new photo arrives every ~10 s). The whole bottle should
+   be in frame, lit and in focus.
+2. **Open Supabase → Table Editor → `capture_settings`** (one row). For each
+   level and yaw:
+   1. Set `enabled = false` to pause archiving.
+   2. Set the bottle to the level (measure it) and rotate it to the yaw.
+   3. Fill in `label_fill_percent`, `label_yaw_deg` and `session`, then set
+      `enabled = true`.
+   4. Wait 10 s, because labels are cached for up to 10 s, then let it
+      record for ~2 min.
+   5. Go back to step 1 for the next level or yaw.
+3. **Rules:**
+   - **Never change the bottle while `enabled = true`.** Those photos would
+     get the old label.
+   - **Keep the drip clamped shut while recording.** A dripping bottle
+     drifts away from its label.
+4. **When you're done,** set `enabled = false` and clear the label fields.
+5. **Spot-check** in Table Editor → `training_frames`, filtered to your
+   session: check the counts per level, and open a few images under Storage
+   → `training-frames`. For a bad photo (a hand in front, blurred), set its
+   `label_fill_percent` to empty. Unlabelled photos are never used for
+   training.
+
+### 4. Train your round
+
+**First time only (lead):** once the test sessions are captured and
+labelled, run:
+
+```sh
+python ml-model-training/shared_training.py init --test-sessions <test-session-1>,<test-session-2>
+```
+
+**Every round (the person who captured):**
+
+```sh
+git pull                                   # latest tools
+python ml-model-training/shared_training.py status
+python ml-model-training/shared_training.py train --sessions <your-session>
+```
+
+- **"Not now: X is training":** wait. `status` shows who is training and
+  until when.
+- **What a round does:**
+  1. downloads the photos it needs
+  2. starts from the **best** version
+  3. trains on your session, plus the same number of photos replayed from
+     earlier sessions
+  4. scores against the test sessions
+  5. saves the result as the next version
+- **The result line** says `NEW BEST` or `not better`. Both are fine. A worse
+  round stays in the history, and the next person starts from the best.
+- **Several sessions at once:** `--sessions a,b`.
+- **If rounds keep coming out "not better",** try more data first, then
+  `--epochs 8` or `--lr 3e-4` / `5e-5`. Every attempt is recorded.
+- **Speed:** training runs on a laptop CPU; expect minutes for a few
+  thousand photos. A GPU is used automatically if present.
+
+### 5. Hand over
+
+There's nothing to send: the new version is already in Supabase. Post in
+the team chat, for example "trained `<session>` → v0007, test MAE 6.2, NEW
+BEST". The next person captures their session (step 3) and trains (step 4).
+
+**If a round crashed** and `status` still shows your lock, run
+`python ml-model-training/shared_training.py unlock`. Only do this if you're
+sure nobody is mid-round.
+
+### 6. Ship the best model (lead)
+
+When the best version's test MAE is clearly better than v0001 (the model
+that was deployed at the start):
+
+```sh
+python ml-model-training/shared_training.py download --deploy
+git add server/app/cv/models/fill_regression_v2_mobilenet.pth
+git commit -m "Deploy shared model v00NN (test MAE x.x)"
+git push
+```
+
+Then open a pull request **`model-training` → `main`** on GitHub. It merges
+once all 6 checks pass, and Render then serves the new model. Afterwards,
+verify it on the real bottle from the dashboard.
+
+### What decides how good the model gets
+
+- **Correct labels matter more than more photos.** Follow the pause → set →
+  resume rule.
+- **Variety across sessions** covers lighting, bottles and angles.
+- **Fixed, honest test sessions.** Never train on them, and never change
+  them after `init`.
+- **The best-version rule means the shared model can never get worse** on
+  the test set. How good it gets depends on the data.
+- **Storage:** pause archiving between sessions. The free 1 GB holds about
+  26,000–40,000 lit photos.
 
 ## Dashboard — `frontend/`
 
