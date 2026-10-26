@@ -244,6 +244,51 @@ Supabase as a shared, labelled dataset:
 - Free projects pause after 7 days of inactivity.
 - Pro ($25/month) raises storage to 100 GB.
 
+### Training the shared model (team, in turns)
+
+The whole team trains **one** model, one capture session at a time, with
+`ml-model-training/shared_training.py`. The model lives in the private
+Supabase bucket `models`: a version per training round (`v0001/model.pth`,
+`v0002/…`), a `registry.json` holding the history, and a `lock.json` while
+someone is training.
+
+```sh
+python ml-model-training/shared_training.py status                     # versions, best, who's training
+python ml-model-training/shared_training.py init --test-sessions run-07,run-08   # once
+python ml-model-training/shared_training.py train --sessions run-04    # your round
+python ml-model-training/shared_training.py download                   # best version -> .pth
+```
+
+**One `train` round:**
+1. **Reserve the model.** If a teammate is mid-round, you're told who and
+   until when, and nothing changes.
+2. **Start from the current best version.**
+3. **Train** on your session(s), plus a replay sample of every session
+   trained before, so earlier sessions aren't forgotten.
+4. **Score** the new version and the best on the same fixed test sessions.
+5. **Save** it as the next version. It becomes best only if it scored better.
+   A worse round stays in the history, and the next person continues from
+   the best.
+6. **Release the lock,** even if the run crashed. If a lock is ever stuck,
+   run `unlock`.
+
+**Ground rules:**
+- **Test sessions are fixed at `init`,** so every score is comparable. Never
+  train on them, and keep them representative: several fill levels and
+  yaw angles, captured on a different day.
+- **Same recipe as `train_continuous_v2.py`:** architecture, preprocessing,
+  losses and augmentation are imported from or mirror the deployed model's
+  code. Defaults are 5 epochs, lr 1e-4, batch 24 and replay 1.0.
+- **Credentials:** `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the
+  environment or `server/.env`. Supabase project members can copy the
+  secret key from Project Settings → API Keys.
+- **Shipping a version:** `download --deploy` overwrites
+  `server/app/cv/models/fill_regression_v2_mobilenet.pth`. Commit that on the
+  `model-training` branch and open a PR to `main`; CI must pass before it
+  goes live.
+- **Not trained yet:** `label_yaw_deg` is collected, but the current
+  architecture has no yaw head.
+
 ## Dashboard — `frontend/`
 
 TanStack Start (React 19, SSR) · TypeScript · Tailwind CSS v4 · shadcn/ui ·
