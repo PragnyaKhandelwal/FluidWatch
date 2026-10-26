@@ -229,11 +229,15 @@ Supabase as a shared, labelled dataset:
     new images are downloaded on each run.
 
 **Capacity on the Supabase Free plan:**
-- Storage is 1 GB. At VGA, JPEG quality 12, a frame is roughly 30–60 KB, so
-  that's about 17,000–35,000 frames.
-- One camera uploading every 10 s produces 8,640 frames/day (~0.3–0.5 GB), so
-  continuous capture fills the quota in 2–3 days. Pause with
-  `capture_settings.enabled = false` between deliberate collection sessions.
+- Storage is 1 GB. Real ESP32-CAM frames (VGA, JPEG quality 12) measured
+  12–20 KB each in testing (avg ~15 KB, a dim scene). A well-lit bottle
+  with more detail will compress less; expect roughly 25–40 KB. So 1 GB holds
+  about 26,000–40,000 well-lit frames, or ~65,000 at the measured size.
+- One camera uploading every 10 s produces 8,640 frames/day (~130 MB/day
+  measured, ~220–350 MB lit), so continuous capture fills the quota in about
+  3–8 days. Pause with `capture_settings.enabled = false` between deliberate
+  collection sessions.
+- The database is never the limit: 60,000 rows take ~30 MB of the 500 MB.
 - Egress is 5 GB/month, shared by everyone. A full download of a 1 GB dataset
   by six people uses 6 GB, so download incrementally, or have one person pull
   it and share it on the team drive.
