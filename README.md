@@ -148,6 +148,7 @@ predictable during long demos.
 | `API_AUTH_TOKEN` | generated | Required for POSTs. If unset, one is generated on first start and written to `server/.env` (check the startup log). Copy it into the firmware's `secrets.h`. **Always set it explicitly in Docker/Render**, otherwise each fresh container mints a new one and locks the ESP32 out. |
 | `DATABASE_URL` | `sqlite:///./data/iv_drip.db` | Any SQLAlchemy URL; Postgres works without code changes |
 | `CORS_ORIGINS` | `*` | Comma-separated dashboard origins |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | unset | Turn on the training-data archive (see [Collecting training data](#collecting-training-data)). The service-role/secret key bypasses RLS, so it belongs only in `server/.env` and Render's environment. |
 
 See `server/.env.example`.
 
@@ -195,6 +196,49 @@ specific numbers in a demo.
 **To update the model:** retrain with `train_continuous_v2.py`, copy the new
 `.pth` into `server/app/cv/models/` (same filename) and restart. Nothing else
 changes.
+
+### Collecting training data
+
+The current model was trained on public images and doesn't transfer well to
+real ESP32-CAM frames, so the backend can archive every frame it receives into
+Supabase as a shared, labelled dataset:
+
+- **Images:** private Storage bucket `training-frames`, stored as
+  `<device>/<YYYY-MM-DD>/<device>_<timestamp>.jpg`.
+- **Metadata:** table `training_frames`, one row per image. It holds the
+  device, time, size, the deployed model's prediction, and the labels
+  `label_fill_percent`, `label_yaw_deg`, `session` and `notes`.
+- **Labelling at capture time:** before a collection run, edit the single
+  row in `capture_settings` (Supabase Table Editor). For example, set
+  `label_fill_percent = 80`, `label_yaw_deg = 30`, `session = run-03`.
+  Every frame archived from then on carries those labels, within ~10 s of
+  the change. Set `enabled = false` to pause archiving. Labels can also be
+  corrected per row afterwards.
+- **Setup:** set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the
+  backend (`server/.env` locally, Environment tab on Render). The schema and
+  bucket come from `supabase/migrations/20261026120000_training_frames.sql`.
+  Archiving runs after the camera's upload has been answered, and a failure
+  is only logged, never surfaced to the device.
+- **Access for the team:**
+  - Project members can browse and download in the Supabase dashboard
+    (Storage → `training-frames`, Table Editor → `training_frames`).
+  - To pull the dataset for training, run
+    `python ml-model-training/fetch_dataset.py --email you@...`. It signs in
+    with your own FluidWatch account, which must have the admin role, and
+    writes the images plus `labels.csv` to `ml-model-training/dataset/`. Only
+    new images are downloaded on each run.
+
+**Capacity on the Supabase Free plan:**
+- Storage is 1 GB. At VGA, JPEG quality 12, a frame is roughly 30–60 KB, so
+  that's about 17,000–35,000 frames.
+- One camera uploading every 10 s produces 8,640 frames/day (~0.3–0.5 GB), so
+  continuous capture fills the quota in 2–3 days. Pause with
+  `capture_settings.enabled = false` between deliberate collection sessions.
+- Egress is 5 GB/month, shared by everyone. A full download of a 1 GB dataset
+  by six people uses 6 GB, so download incrementally, or have one person pull
+  it and share it on the team drive.
+- Free projects pause after 7 days of inactivity.
+- Pro ($25/month) raises storage to 100 GB.
 
 ## Dashboard — `frontend/`
 
