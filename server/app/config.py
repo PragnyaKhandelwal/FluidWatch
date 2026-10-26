@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     api_auth_token: str = ""
     cors_origins: str = "*"
 
+    # Training-data archive (app/dataset_archive.py) - off unless both are
+    # set. The service-role key bypasses RLS: server-side only, never in
+    # the dashboard bundle or the firmware.
+    supabase_url: str = ""
+    supabase_service_role_key: str = ""
+    dataset_bucket: str = "training-frames"
+
     @property
     def cors_origin_list(self) -> list[str]:
         if self.cors_origins.strip() == "*":

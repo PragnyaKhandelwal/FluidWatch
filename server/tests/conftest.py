@@ -10,6 +10,10 @@ _TMP = Path(tempfile.mkdtemp(prefix="iv-drip-tests-"))
 os.environ["DATABASE_URL"] = f"sqlite:///{(_TMP / 'test.db').as_posix()}"
 os.environ["API_AUTH_TOKEN"] = "test-token"
 os.environ["CORS_ORIGINS"] = "*"
+# Never archive to a real Supabase project from tests, even if server/.env
+# has credentials - test_dataset_archive.py enables it against a mock.
+os.environ["SUPABASE_URL"] = ""
+os.environ["SUPABASE_SERVICE_ROLE_KEY"] = ""
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

@@ -2,5 +2,4 @@
 
 # Test/lint-only - not needed to run the server.
 pytest>=9.1.1
-httpx>=0.27
 ruff>=0.17

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -6,6 +6,7 @@ from ..bedfeed import to_bed_payload
 from ..cv.base import InvalidFrameError
 from ..cv.pipeline import active_processor
 from ..cv.reading_builder import build_reading, prune_old_readings
+from ..dataset_archive import archive_enabled, archive_frame
 from ..db import get_db
 from ..frame_storage import load_latest_frame, save_latest_frame
 from ..models import Reading
@@ -20,6 +21,7 @@ router = APIRouter(prefix="/api/v1/frames", tags=["frames"])
 async def ingest_frame(
     device_id: str,
     file: UploadFile,
+    background_tasks: BackgroundTasks,
     bed_label: str | None = None,
     patient_name: str | None = None,
     fluid_label: str | None = None,
@@ -34,7 +36,9 @@ async def ingest_frame(
 
     The uploaded image itself is saved (overwriting any previous frame
     for this device_id - see frame_storage.py) so GET /latest can serve
-    it back for display on the dashboard."""
+    it back for display on the dashboard. When Supabase is configured,
+    every frame is also archived for retraining (dataset_archive.py),
+    after the response is sent."""
     frame_bytes = await file.read()
 
     # Process before saving, so an unreadable upload never replaces the
@@ -44,6 +48,8 @@ async def ingest_frame(
     except InvalidFrameError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     save_latest_frame(device_id, frame_bytes)
+    if archive_enabled():
+        background_tasks.add_task(archive_frame, device_id, frame_bytes, result.fill_percent, result.aux_class)
 
     reading_in = build_reading(
         db,
