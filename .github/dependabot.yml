@@ -1,12 +1,12 @@
 # Each component keeps its own manifest - point Dependabot at each folder.
 #
 # Version updates run once a month (the 1st, 09:00 IST), as ONE grouped PR
-# per component; frontend major bumps stay separate so each breaking change
-# can be checked on its own. versioning-strategy "increase" raises the
-# minimum version in the manifest itself.
+# per component (about 4 a month). Dashboard major versions are not raised
+# at all - those are upgraded deliberately. versioning-strategy "increase"
+# raises the minimum version in the manifest itself.
 #
-# Minor/patch PRs merge themselves once CI passes
-# (workflows/dependabot-auto-merge.yml); only majors need a person.
+# Non-major PRs merge themselves once CI passes
+# (workflows/dependabot-auto-merge.yml).
 #
 # Security fixes are not affected by this schedule: Dependabot security
 # updates still open a PR as soon as an advisory is published.
@@ -30,12 +30,12 @@ updates:
         patterns: ["*"]
         update-types: [minor, patch]
     ignore:
-      # Matches the Node 22 runtime (CI and Vercel); bump with the runtime.
-      - dependency-name: "@types/node"
-        update-types: ["version-update:semver-major"]
-      # v7 adds React Compiler rules that flag 7 existing effects; upgrade
-      # together with rewriting those, not as a drive-by bump.
-      - dependency-name: eslint-plugin-react-hooks
+      # No major-version PRs for the dashboard: each one came as its own PR
+      # and most need code changes (TypeScript 7, recharts 3, vitest 5,
+      # react-day-picker 10, eslint-plugin-react-hooks 7 - all failed or
+      # needed rewrites). Do majors deliberately, one at a time. Security
+      # fixes still arrive as their own PRs regardless of this rule.
+      - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: pip

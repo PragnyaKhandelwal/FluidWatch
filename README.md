@@ -613,12 +613,14 @@ repo's plan, so CI's **Security** job covers the same ground for free:
 - **Dependabot:** version updates once a month (the 1st, 09:00 IST) for
   `frontend/`, `server/`, `firmware/tools/` and the CI actions
   (`.github/dependabot.yml`).
-  - Each component gets one grouped PR. Frontend major bumps come as their
-    own PRs. Updates raise the minimum version in the manifest itself
+  - Each component gets one grouped PR (about 4 a month). Dashboard major
+    versions are skipped and upgraded by hand. Updates raise the minimum
+    version in the manifest itself
     (`versioning-strategy: increase`).
   - Anything that isn't a major bump **merges itself** once all required
     checks pass (`.github/workflows/dependabot-auto-merge.yml`; needs
-    **Settings → General → Allow auto-merge**). Only majors need a person.
+    **Settings → General → Allow auto-merge**). Only an actions or server
+    major bump needs a person.
   - Security-fix PRs are separate, still open as soon as an advisory lands,
     and auto-merge the same way.
   - torch is excluded from these and upgraded by hand against the saved
