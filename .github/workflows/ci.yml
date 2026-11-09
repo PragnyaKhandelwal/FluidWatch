@@ -70,6 +70,13 @@ jobs:
       # secrets.h is gitignored - compile against the placeholder values.
       - run: cp include/secrets.h.example include/secrets.h
       - run: pio run
+      # Remote-management tool (MQTT/OTA): lint + tests, no broker needed.
+      - name: fleet.py lint and tests
+        working-directory: firmware/tools
+        run: |
+          pip install -r requirements.txt pytest ruff
+          ruff check --config ../../server/ruff.toml .
+          pytest tests -q
 
   # Free stand-in for GitHub's code/secret scanning, which this private repo
   # doesn't have: secrets across the whole git history, plus known-vulnerable

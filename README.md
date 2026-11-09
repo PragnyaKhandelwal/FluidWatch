@@ -37,7 +37,8 @@ server/               FastAPI backend - ingest, fill-level model, storage,  -> R
                       exports, WebSocket feeds.
 supabase/             Database schema (migrations) for staff auth, roles
                       and ward settings. Supabase CLI project.
-firmware/esp32-cam/   ESP32-CAM firmware (PlatformIO) - capture + upload.   -> flashed over USB-serial
+firmware/esp32-cam/   ESP32-CAM firmware (PlatformIO) - capture + upload.   -> serial once, then OTA
+firmware/tools/       fleet.py - remote settings, photos and OTA over MQTT.
 ml-model-training/    Training scripts and model artifacts.
 .github/              CI workflow and Dependabot config.
 docs/screenshots/     Images used in this README.
@@ -284,6 +285,10 @@ client. Nothing uses it yet; if something does, it needs
   from `/admin`.
 - The `handle_new_user` trigger, which creates the profile and makes the
   first signup an admin and everyone after a nurse.
+- The training-data archive (`training_frames`, `capture_settings`, bucket
+  `training-frames`) and remote device management (`firmware_releases`,
+  `device_config`, bucket `firmware`). See
+  [Remote management](#remote-management-mqtt--supabase).
 
 **Using the existing project:** nothing to do. `frontend/.env` already
 points at it. When deploying, add the production URL under
@@ -316,23 +321,170 @@ points at it. When deploying, add the production URL under
 
 ## Firmware — `firmware/esp32-cam/`
 
-Firmware for an AI-Thinker ESP32-CAM (ESP32-D0WDQ6, 4 MB PSRAM, OV5640 5 MP).
-It connects to Wi-Fi, captures a JPEG every `SEND_INTERVAL_MS` (10 s by
-default) and POSTs it as multipart to `SERVER_URL` with
+Firmware for an AI-Thinker ESP32-CAM (ESP32-D0WD-V3, 4 MB PSRAM, OV5640 5 MP,
+fixed-focus lens). It connects to Wi-Fi, takes a JPEG every `interval_s`
+(10 s by default) and POSTs it as multipart to `SERVER_URL` with
 `device_id/bed_label/patient_name/fluid_label` and the bearer token. It does
-no image analysis itself; the server does that.
+no image analysis itself; the server does that. Every setting can be changed,
+and new firmware installed, remotely over MQTT, so a unit only needs a
+programmer once.
 
-- **Status LED** (GPIO33, red, next to reset): off while Wi-Fi is
-  disconnected, on once connected.
-- **Flash LED** (GPIO4): a short blink after each successful capture.
-- **Serial** (`pio device monitor`, 115200): logs every upload's HTTP status
-  and response. Expect `201`.
+| File | Role |
+|---|---|
+| `src/main.cpp` | Schedule, upload, MQTT command handling, status reports |
+| `src/capture_config.cpp` | **The settings table**: every name, range, default and meaning (`fleet.py` reads it too) |
+| `src/camera_control.cpp` | Camera power-up / capture / power-down, applying sensor settings |
+| `src/remote.cpp` | MQTT over TLS (HiveMQ Cloud), with reconnect backoff and a last-will "offline" status |
+| `src/ota.cpp` | Over-the-air install with SHA-256 check and automatic rollback |
+| `include/secrets.h` | Wi-Fi, `SERVER_URL`, `API_AUTH_TOKEN`, MQTT credentials (gitignored) |
+
+- **Status LED** (GPIO33, red, next to reset): on while Wi-Fi is connected.
+- **Flash LED** (GPIO4): off, unless the `flash` setting turns it on for captures.
+- **Serial** (`pio device monitor`, 115200): boot settings, a full sensor
+  report, and every upload's HTTP status. Expect `201`.
+
+### Heat and power
+
+The OV5640 is the hottest part of the board while it streams, so the firmware
+keeps it **powered off except for the second or two each photo takes**:
+power up, discard `warmup_frames` while exposure and white balance settle,
+take the photo, power down (sensor held in hardware power-down via PWDN).
+On top of that:
+
+- the CPU runs at `cpu_mhz` = 160 by default (80 is coolest, 240 fastest);
+- Wi-Fi modem sleep is on between packets;
+- the main loop yields to the idle task instead of spinning;
+- `xclk_mhz` can lower the sensor's clock further.
+
+`fleet.py status` shows each unit's chip temperature, but the ESP32's internal
+sensor is uncalibrated (±10 °C, and some chips always read 53.3 °C), so use it
+to watch for a trend, not as an absolute value.
+
+### Settings
+
+All of these can be changed remotely (`fleet.py config`), are kept across
+reboots, and are listed by `python firmware/tools/fleet.py params`:
+
+| Setting | Range | Default | What it does |
+|---|---|---|---|
+| `interval_s` | 5..3600 | 10 | Seconds between scheduled photos |
+| `cpu_mhz` | 80..240 | 160 | CPU clock: 80, 160 or 240 MHz. Lower = cooler and less power; 160 is the balance |
+| `camera_sleep` | 0..1 | 1 | 1 = power the camera off between photos (cooler, safer); 0 = keep it running |
+| `xclk_mhz` | 10..20 | 20 | Clock fed to the sensor. Lower runs the sensor cooler but slower; 20 is standard |
+| `warmup_frames` | 0..30 | 5 | Frames thrown away after power-up so exposure and white balance settle |
+| `settle_ms` | 0..5000 | 100 | Extra wait after power-up before the warm-up frames |
+| `flash` | 0..1 | 0 | 1 = white LED on while capturing (even lighting, but can glare on glossy plastic) |
+| `frame_size` | 0..21 | 8 | Resolution: QVGA=5 (320x240), VGA=8 (640x480), SVGA=9, XGA=10, HD=11, UXGA=13, QSXGA=21 |
+| `jpeg_quality` | 4..63 | 10 | JPEG quality, lower = better and bigger. Below ~8 can overflow at large sizes |
+| `brightness` | -2..2 | 0 | Overall brightness offset |
+| `contrast` | -2..2 | 0 | Contrast. +1 makes the liquid line stand out more |
+| `saturation` | -2..2 | 0 | Colour saturation. Clear fluids need little; coloured fluids may like +1 |
+| `sharpness` | -2..2 | 0 | Edge sharpening (not every driver version supports it) |
+| `denoise` | 0..8 | 0 | Noise reduction strength (not every driver version supports it) |
+| `special_effect` | 0..6 | 0 | 0 none, 1 negative, 2 grayscale, 3 red, 4 green, 5 blue, 6 sepia |
+| `awb` | 0..1 | 1 | Auto white balance |
+| `awb_gain` | 0..1 | 1 | Apply the auto white balance gains |
+| `wb_mode` | 0..4 | 0 | White balance preset when awb_gain is on: 0 auto, 1 sunny, 2 cloudy, 3 office, 4 home |
+| `aec` | 0..1 | 1 | Auto exposure. 0 = use aec_value (fixed exposure, most consistent frames) |
+| `aec2` | 0..1 | 0 | DSP night mode: longer exposure in low light (slower, may blur drips) |
+| `ae_level` | -2..2 | 0 | Auto exposure target: negative = darker, positive = brighter |
+| `aec_value` | 0..1200 | 300 | Manual exposure time, used when aec = 0 |
+| `agc` | 0..1 | 1 | Auto gain. 0 = use agc_gain |
+| `agc_gain` | 0..30 | 0 | Manual gain when agc = 0. Higher = brighter but noisier |
+| `gainceiling` | 0..6 | 2 | Max auto gain: 0=2x 1=4x 2=8x 3=16x 4=32x 5=64x 6=128x. Lower = less noise |
+| `bpc` | 0..1 | 0 | Black pixel correction |
+| `wpc` | 0..1 | 1 | White pixel correction (hides hot pixels) |
+| `raw_gma` | 0..1 | 1 | Gamma correction |
+| `lenc` | 0..1 | 1 | Lens shading correction (evens out darker corners) |
+| `dcw` | 0..1 | 1 | Downsize via the sensor (keep 1 for smaller frame sizes) |
+| `hmirror` | 0..1 | 0 | Mirror the image left-right |
+| `vflip` | 0..1 | 0 | Flip the image upside down (camera mounted inverted) |
+| `colorbar` | 0..1 | 0 | Test pattern instead of the image (diagnostics only) |
+
+Plus the text settings `bed_label`, `patient_name` and `fluid_label` (at most 40
+characters each).
+
+**For IV bottles and bags.** Start from the defaults (VGA, quality 10, auto
+exposure, camera sleeping between photos), then run `fleet.py tune` with the
+unit mounted on a real stand. That takes one photo per preset (resolution,
+flash, exposure, contrast, gain, white balance, fixed exposure) without
+touching the dataset, so you can compare them side by side. Things to look for:
+
+- **Frame size:** the model letterboxes every frame to 224×224, so VGA is
+  enough. SVGA only helps if the bottle is small in the frame.
+- **Consistency beats brightness.** Once a good exposure is found, a fixed
+  exposure (`aec=0 aec_value=... agc=0 agc_gain=...`) makes every frame look
+  the same, which helps the model more than any single setting.
+- **`contrast=1`** usually makes the liquid line clearer.
+- **`flash=1`** evens out lighting at night, but check for glare on the plastic.
+- **Lower `gainceiling`** means less noise in dim wards.
+- **Focus:** the lens is fixed-focus. Set it once by turning the lens at the
+  mounting distance; no software setting changes it.
+
+### Remote management (MQTT + Supabase)
+
+```
+fleet.py (laptop) --MQTT/TLS--> HiveMQ Cloud <--MQTT/TLS-- ESP32-CAM
+      |                                                       |
+      +--- firmware images, releases, settings ---> Supabase <-+ downloads a signed URL
+```
+
+Topics, all under `fluidwatch/<DEVICE_ID>/`: `config` (retained settings),
+`cmd` (capture / status / report / reboot / ota), `status` (retained health,
+"offline" as the last will), `event` (results) and `photo/<tag>` (tuning shots).
+
+**One-time setup:**
+1. **Broker:**
+   1. Create a free cluster at [console.hivemq.cloud](https://console.hivemq.cloud).
+   2. Under **Access Management**, add credentials for the devices and for
+      yourself.
+   3. Put the cluster host and the device credentials in
+      `firmware/esp32-cam/include/secrets.h` (`MQTT_HOST`, `MQTT_USERNAME`,
+      `MQTT_PASSWORD`).
+   4. Put the host and your own credentials in `firmware/tools/.env`
+      (gitignored):
+      ```
+      MQTT_HOST=xxxxxxxx.s1.eu.hivemq.cloud
+      MQTT_USERNAME=...
+      MQTT_PASSWORD=...
+      ```
+2. **Supabase:** run
+   `supabase/migrations/20261109120000_firmware_ota.sql` in the SQL editor.
+   It creates:
+   - the private `firmware` bucket;
+   - `firmware_releases`, one row per version with its SHA-256;
+   - `device_config`, each unit's settings.
+
+   `fleet.py` uses the service-role key from `server/.env`.
+3. **Install the tool:** `pip install -r firmware/tools/requirements.txt`.
+4. **Flash this firmware over serial one last time.** It switches to a
+   partition table with two app slots (`min_spiffs.csv`), which OTA needs.
+
+**Day to day** (from anywhere, no programmer):
+
+```sh
+python firmware/tools/fleet.py status                       # online units: firmware, Wi-Fi, temperature, last photo
+python firmware/tools/fleet.py config IV-CAM-01 contrast=1 bed_label="Bed 12"
+python firmware/tools/fleet.py tune IV-CAM-01                # photos per preset -> tune/
+python firmware/tools/fleet.py capture IV-CAM-01 --out now.jpg
+python firmware/tools/fleet.py release 1.1.0 --notes "..."   # build, upload to Supabase, record SHA-256
+python firmware/tools/fleet.py ota IV-CAM-01 1.1.0           # install it remotely
+```
+
+**How an update stays safe:**
+1. `fleet.py ota` sends the unit a one-hour signed download URL and the image's
+   SHA-256 over the authenticated broker.
+2. The unit writes the download to its **other** app slot while the current
+   firmware keeps running. It only switches if the SHA-256 matches.
+3. The new firmware counts as unconfirmed until it reaches the broker. If it
+   crash-loops 3 times, or can't connect within 5 minutes, the unit boots the
+   previous firmware again and reports `rolled back from ...` in its status.
 
 ### Hardware & flashing
 
-The board has **no USB**, so use an FTDI / USB-TTL adapter and a real 5 V / 2 A+
-supply. Weak power is the most common cause of resets and camera-init
-failures.
+The board has **no USB**, so use an FTDI / USB-TTL adapter (voltage jumper on
+**5V**) and a real 5 V / 2 A+ supply. Weak power is the most common cause of
+resets and camera-init failures.
 
 | FTDI | ESP32-CAM |
 |---|---|
@@ -341,12 +493,15 @@ failures.
 | TX | U0R |
 | RX | U0T |
 
-To flash, tie **GPIO0 to GND** before powering on. Afterwards, remove the
-jumper and press reset.
+To flash:
+1. Hold **IO0 to GND** (jumper or button) and tap **RST**. The serial log shows
+   `DOWNLOAD_BOOT`.
+2. Upload.
+3. Release IO0 and tap RST.
 
 ```sh
 cd firmware/esp32-cam
-cp include/secrets.h.example include/secrets.h   # Wi-Fi, SERVER_URL, API_AUTH_TOKEN, device/bed labels
+cp include/secrets.h.example include/secrets.h   # Wi-Fi, SERVER_URL, API_AUTH_TOKEN, MQTT
 pio run -t upload
 pio device monitor
 ```
@@ -356,21 +511,33 @@ pio device monitor
 `https://<render-app>.onrender.com/api/v1/frames`. `API_AUTH_TOKEN` must
 match the backend's exactly. `include/secrets.h` is gitignored.
 
-**Capture tuning:** `include/config.h` (`CAPTURE_FRAME_SIZE`,
-`CAPTURE_JPEG_QUALITY`). The model downsizes everything to 224×224, so VGA
-(640×480) is plenty unless testing shows otherwise.
-
-`src/camera_bringup_test.cpp.txt` and `src/camera_web_server.cpp.txt` are
-standalone bring-up sketches, kept as `.txt` so they aren't built.
+The repo also has two standalone sketches, kept as `.txt` so they aren't
+built. To use one, swap it in for `main.cpp`:
+- `src/camera_bringup_test.cpp.txt`: bare camera check.
+- `src/camera_web_server.cpp.txt`: tuning page with a live stream. It has a
+  control for every setting in the table above, shows the values the sensor
+  reports, and generates the matching `fleet.py config` command.
 
 **Troubleshooting:**
 - **Resets or camera init fails:** check the power supply and wiring first.
+- **Boot loop with `boot:0x33` and `invalid header: 0xffffffff`:** something
+  is pulling **IO12** high at power-up, which switches the flash chip to
+  1.8 V. Nothing may touch IO12.
+- **Upload says "No serial data received":**
+  - If the serial log shows `DOWNLOAD_BOOT` but uploads still fail, the
+    FTDI TX → U0R wire isn't connected.
+  - If nothing arrives at all, check GND and RX ← U0T.
 - **"no PSRAM found":** check that `BOARD_HAS_PSRAM` in `platformio.ini`
   applied, then do a clean rebuild.
-- **Uploads fail:**
+- **Uploads to the backend fail:**
   - Check `SERVER_URL` is reachable from the board's network.
   - Check the backend is running.
   - Check the token matches.
+- **`fleet.py status` shows nothing:**
+  - Check the unit's MQTT credentials. The serial log shows
+    `[MQTT] connect failed, state=...`, where state 4 or 5 means bad
+    credentials.
+  - Check the cluster host.
 
 ## Testing & CI
 
@@ -380,7 +547,7 @@ standalone bring-up sketches, kept as `.txt` so they aren't built.
 |---|---|
 | Backend | `ruff` lint (rules in `server/ruff.toml`), then `pytest` in `server/` (63 tests): every endpoint, auth, both WebSocket feeds, exports, reading derivation, path sanitizing, real-model smoke tests |
 | Dashboard | `lint`, `typecheck`, Vitest (37 tests for the telemetry logic), production build in `frontend/` |
-| Firmware | `pio run` compiles `firmware/esp32-cam` against `secrets.h.example` |
+| Firmware | `pio run` compiles `firmware/esp32-cam` against `secrets.h.example`; `ruff` + `pytest` for `firmware/tools/fleet.py` (25 tests) |
 | End-to-end | Builds the backend Docker image, runs it, then `server/e2e/smoke_test.py` drives it from outside: frame upload → model → stored reading → `/ws/bedfeed` message → latest frame, devices, CSV/XLSX |
 | Security | See [Security](#security) |
 
