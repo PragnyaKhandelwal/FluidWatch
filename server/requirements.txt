@@ -6,7 +6,7 @@ pydantic-settings>=2.3
 python-dotenv>=1.0
 python-multipart>=0.0.32
 openpyxl>=3.1.5
-httpx>=0.27  # Supabase training-frame archive (app/dataset_archive.py)
+httpx>=0.28.1  # Supabase training-frame archive (app/dataset_archive.py)
 
 # Fill-level model (app/cv/real_frame_processor.py). CPU-only wheels -
 # the default PyPI torch build bundles CUDA and is enormous for no
