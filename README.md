@@ -611,12 +611,16 @@ repo's plan, so CI's **Security** job covers the same ground for free:
   `overrides` pins patched versions of transitive build-tool packages.
   `torch`/`torchvision` CPU wheels aren't on PyPI, so pip-audit skips them.
 - **Dependabot:** version updates once a month (the 1st, 09:00 IST) for
-  `frontend/`, `server/` and the CI actions (`.github/dependabot.yml`).
-  - Minor and patch bumps arrive as one grouped PR per component, and each
-    major bump comes as its own PR. Updates raise the minimum version in the
-    manifest itself (`versioning-strategy: increase`).
-  - Security-fix PRs are separate and still open as soon as an advisory
-    lands.
+  `frontend/`, `server/`, `firmware/tools/` and the CI actions
+  (`.github/dependabot.yml`).
+  - Each component gets one grouped PR. Frontend major bumps come as their
+    own PRs. Updates raise the minimum version in the manifest itself
+    (`versioning-strategy: increase`).
+  - Anything that isn't a major bump **merges itself** once all required
+    checks pass (`.github/workflows/dependabot-auto-merge.yml`; needs
+    **Settings → General → Allow auto-merge**). Only majors need a person.
+  - Security-fix PRs are separate, still open as soon as an advisory lands,
+    and auto-merge the same way.
   - torch is excluded from these and upgraded by hand against the saved
     model checkpoint.
 

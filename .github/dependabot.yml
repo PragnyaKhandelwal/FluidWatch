@@ -1,9 +1,12 @@
 # Each component keeps its own manifest - point Dependabot at each folder.
 #
-# Version updates run once a month (the 1st, 09:00 IST). Minor and patch
-# bumps arrive as ONE grouped PR per component; major bumps stay separate so
-# each breaking change can be checked on its own. versioning-strategy
-# "increase" raises the minimum version in the manifest itself.
+# Version updates run once a month (the 1st, 09:00 IST), as ONE grouped PR
+# per component; frontend major bumps stay separate so each breaking change
+# can be checked on its own. versioning-strategy "increase" raises the
+# minimum version in the manifest itself.
+#
+# Minor/patch PRs merge themselves once CI passes
+# (workflows/dependabot-auto-merge.yml); only majors need a person.
 #
 # Security fixes are not affected by this schedule: Dependabot security
 # updates still open a PR as soon as an advisory is published.
@@ -36,15 +39,29 @@ updates:
     versioning-strategy: increase
     open-pull-requests-limit: 5
     groups:
-      server-minor-and-patch:
+      # No update-types filter: these are `>=` lower bounds, so Dependabot
+      # can't classify them as minor/patch and the filter matched nothing
+      # (one PR per package). Raising a lower bound is low-risk; CI decides.
+      server:
         patterns: ["*"]
-        update-types: [minor, patch]
     ignore:
       # Dependabot rewrites these as e.g. `torch>=2.14.1+cpu`, which pip
       # rejects (a +cpu local label is only valid with ==). Upgrade torch
       # deliberately, re-checking the saved model checkpoint loads.
       - dependency-name: torch
       - dependency-name: torchvision
+
+  - package-ecosystem: pip
+    directory: /firmware/tools
+    schedule:
+      interval: monthly
+      time: "09:00"
+      timezone: Asia/Kolkata
+    versioning-strategy: increase
+    open-pull-requests-limit: 2
+    groups:
+      fleet-tool:
+        patterns: ["*"]
 
   - package-ecosystem: github-actions
     directory: /

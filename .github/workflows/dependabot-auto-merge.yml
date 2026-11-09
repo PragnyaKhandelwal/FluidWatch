@@ -1,0 +1,30 @@
+# Turns on GitHub auto-merge for Dependabot's minor and patch PRs, so they
+# merge by themselves once every required check in the main ruleset passes.
+# Major bumps are left for a person. Needs Settings -> General ->
+# "Allow auto-merge" enabled on the repository.
+name: Dependabot auto-merge
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - name: Read Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      # Grouped PRs report their largest update. `>=` requirement bumps
+      # (server/) carry no semver type and are treated as non-major.
+      - name: Enable auto-merge (squash) unless it's a major bump
+        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
