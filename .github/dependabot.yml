@@ -29,6 +29,14 @@ updates:
       frontend-minor-and-patch:
         patterns: ["*"]
         update-types: [minor, patch]
+    ignore:
+      # Matches the Node 22 runtime (CI and Vercel); bump with the runtime.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # v7 adds React Compiler rules that flag 7 existing effects; upgrade
+      # together with rewriting those, not as a drive-by bump.
+      - dependency-name: eslint-plugin-react-hooks
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: pip
     directory: /server
