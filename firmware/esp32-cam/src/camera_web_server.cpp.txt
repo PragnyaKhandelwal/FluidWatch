@@ -1,133 +1,183 @@
-// CAMERA CONFIG + LIVE PREVIEW WEB SERVER - not part of the real firmware.
+// CAMERA TUNING + LIVE PREVIEW WEB SERVER - not part of the real firmware.
 //
-// Standalone mode: connects to WiFi, then hosts its own webpage (on the
-// ESP32-CAM itself) with a live MJPEG video stream and camera settings
-// (resolution, quality, brightness/contrast/saturation, flip/mirror,
-// flash LED) - the classic "ESP32-CAM web server" experience, for
-// previewing/tuning the physical camera framing before running the real
-// capture-and-upload firmware. No backend/WiFi credentials for the
-// server needed - this doesn't touch server/ at all.
+// Hosts a page on the ESP32-CAM itself with a live MJPEG stream and a control
+// for EVERY camera setting in src/capture_config.cpp (same names, ranges and
+// help text as the real firmware), plus the values the sensor reports it is
+// actually using. Use it to find the best settings for the real bottle,
+// mounting and lighting, then copy the generated `fleet.py config ...`
+// command at the bottom of the page to apply them to the deployed firmware.
 //
 // HOW TO USE:
 //   1. Rename src/main.cpp to src/main.cpp.bak (that's the real
 //      firmware - swap back to it after you're done previewing).
 //   2. Rename this file to src/main.cpp.
-//   3. Flash it (GPIO0 to GND as usual), remove the jumper, reset.
+//   3. Flash it over serial (hold IO0 to GND, tap RST), release IO0, tap RST.
 //   4. Watch the serial monitor for a line like:
 //        [WebServer] open http://192.168.1.42/ in a browser
 //      Open that URL from a device on the same WiFi network.
 //
-// The page shows the live feed and sliders/buttons for camera settings -
-// useful for confirming framing/focus/exposure before pointing it at an
-// actual IV bag for real use.
+// The camera streams continuously here, so it runs warm - don't leave this
+// sketch running unattended. The real firmware powers the camera only per photo.
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
+#include <ESPmDNS.h>
 #include <WiFi.h>
 #include <esp_http_server.h>
-#include "esp_camera.h"
 
+#include "camera_control.h"
 #include "camera_pins.h"
+#include "capture_config.h"
 #include "config.h"
+#include "thermal.h"
 #include "wifi_manager.h"
 
 WiFiManager wifiManager;
-httpd_handle_t streamServer = nullptr;
+CaptureConfig settings;
+// Cleared before the camera is powered down for cooling, so the stream
+// handler (on the web server's task) stops grabbing frames first.
+volatile bool cameraAvailable = true;
+httpd_handle_t controlServer = nullptr; // port 80: page, settings, snapshots
+httpd_handle_t streamServer = nullptr;  // port 81: the never-ending MJPEG stream
 
 namespace {
 
-bool initCamera() {
-    camera_config_t config;
-    config.ledc_channel = LEDC_CHANNEL_0;
-    config.ledc_timer = LEDC_TIMER_0;
-    config.pin_d0 = Y2_GPIO_NUM;
-    config.pin_d1 = Y3_GPIO_NUM;
-    config.pin_d2 = Y4_GPIO_NUM;
-    config.pin_d3 = Y5_GPIO_NUM;
-    config.pin_d4 = Y6_GPIO_NUM;
-    config.pin_d5 = Y7_GPIO_NUM;
-    config.pin_d6 = Y8_GPIO_NUM;
-    config.pin_d7 = Y9_GPIO_NUM;
-    config.pin_xclk = XCLK_GPIO_NUM;
-    config.pin_pclk = PCLK_GPIO_NUM;
-    config.pin_vsync = VSYNC_GPIO_NUM;
-    config.pin_href = HREF_GPIO_NUM;
-    config.pin_sccb_sda = SIOD_GPIO_NUM;
-    config.pin_sccb_scl = SIOC_GPIO_NUM;
-    config.pin_pwdn = PWDN_GPIO_NUM;
-    config.pin_reset = RESET_GPIO_NUM;
-    config.xclk_freq_hz = 20000000;
-    config.pixel_format = PIXFORMAT_JPEG;
-
-    if (psramFound()) {
-        config.frame_size = FRAMESIZE_VGA;
-        config.jpeg_quality = 12;
-        config.fb_count = 2;
-        config.fb_location = CAMERA_FB_IN_PSRAM;
-        config.grab_mode = CAMERA_GRAB_LATEST;
-    } else {
-        config.frame_size = FRAMESIZE_SVGA;
-        config.jpeg_quality = 15;
-        config.fb_count = 1;
-        config.fb_location = CAMERA_FB_IN_DRAM;
-    }
-
-    return esp_camera_init(&config) == ESP_OK;
-}
-
-// --- index page: live stream + settings controls -------------------------
-
 const char INDEX_HTML[] PROGMEM = R"HTML(
 <!DOCTYPE html><html><head><meta charset="utf-8">
-<title>FluidWatch - Camera Preview</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FluidWatch camera tuning</title>
 <style>
 body{font-family:sans-serif;background:#111;color:#eee;margin:0;padding:16px}
-h1{font-size:18px;font-weight:600}
+h1{font-size:18px;font-weight:600}h2{font-size:14px;color:#9cf;margin:18px 0 6px}
 img{max-width:100%;border-radius:8px;border:1px solid #333}
-.controls{display:grid;gap:10px;margin-top:16px;max-width:420px}
-.row{display:flex;align-items:center;justify-content:space-between;gap:8px}
-label{font-size:13px;color:#aaa}
-button,select{background:#222;color:#eee;border:1px solid #444;border-radius:6px;padding:6px 10px}
-input[type=range]{width:180px}
+.wrap{display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}
+@media(min-width:900px){.wrap{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}}
+.row{display:grid;grid-template-columns:130px 1fr 44px;gap:8px;align-items:center;margin:4px 0}
+.row small{grid-column:1/-1;color:#888;font-size:11px;margin-top:-2px}
+label{font-size:13px;color:#ccc}input[type=range]{width:100%}
+pre,textarea{background:#1b1b1b;border:1px solid #333;border-radius:6px;padding:8px;font-size:11px;
+ white-space:pre-wrap;word-break:break-all;width:100%;box-sizing:border-box;color:#ddd}
+button{background:#234;color:#eee;border:1px solid #456;border-radius:6px;padding:6px 10px;cursor:pointer}
+#temp{display:inline-block;padding:6px 12px;border-radius:6px;background:#1d3b24;font-size:14px;margin-bottom:10px}
+#temp.cooling,#temp.critical{background:#5a1d1d}#temp.unavailable{background:#333}
 </style></head><body>
-<h1>ESP32-CAM live preview</h1>
-<img id="stream" src="/stream">
-<div class="controls">
-  <div class="row"><label>Resolution</label>
-    <select id="framesize" onchange="setVar('framesize', this.value)">
-      <option value="6">QVGA (320x240)</option>
-      <option value="8" selected>VGA (640x480)</option>
-      <option value="9">SVGA (800x600)</option>
-      <option value="10">XGA (1024x768)</option>
-    </select></div>
-  <div class="row"><label>JPEG quality (lower = better)</label>
-    <input type="range" min="4" max="40" value="12" oninput="setVar('quality', this.value)"></div>
-  <div class="row"><label>Brightness</label>
-    <input type="range" min="-2" max="2" value="0" oninput="setVar('brightness', this.value)"></div>
-  <div class="row"><label>Contrast</label>
-    <input type="range" min="-2" max="2" value="0" oninput="setVar('contrast', this.value)"></div>
-  <div class="row"><label>Flip vertical</label>
-    <input type="checkbox" onchange="setVar('vflip', this.checked ? 1 : 0)"></div>
-  <div class="row"><label>Mirror horizontal</label>
-    <input type="checkbox" onchange="setVar('hmirror', this.checked ? 1 : 0)"></div>
-  <div class="row"><label>Flash LED</label>
-    <input type="checkbox" onchange="setVar('flash', this.checked ? 1 : 0)"></div>
+<h1>FluidWatch camera tuning</h1>
+<div id="temp">Chip temperature: reading...</div>
+<div class="wrap">
+ <div>
+  <img id="stream">
+  <p><button onclick="snap()">Save snapshot</button> <button onclick="refresh()">Refresh sensor values</button></p>
+  <h2>Sensor reports (live values)</h2><pre id="report">loading...</pre>
+  <h2>Apply to the deployed firmware</h2>
+  <textarea id="cmd" rows="4" readonly></textarea>
+ </div>
+ <div id="controls"></div>
 </div>
 <script>
-function setVar(varName, val) {
-  fetch('/control?var=' + varName + '&val=' + val);
+const groups=[["Schedule, power and heat",0,8],["Image format",8,10],["Image tuning",10,99]];
+let params=[];
+let lastAllowed=true;
+function startStream(){document.getElementById('stream').src='http://'+location.hostname+':81/stream?'+Date.now()}
+startStream();
+// Read-only health metric: the ESP32's own die temperature and the cutoff state.
+function pollTemp(){fetch('/thermal').then(r=>r.json()).then(t=>{
+  const el=document.getElementById('temp');el.className=t.state;
+  el.textContent=t.state==='unavailable'
+    ?'Chip temperature: no sensor on this chip (protection off)'
+    :t.chip_temp_c===undefined?'Chip temperature: reading...'
+    :'Chip temperature: '+t.chip_temp_c.toFixed(1)+' °C · '+t.state+' · pauses at '+t.cutoff_c+' °C, resumes below '+(t.cutoff_c-10)+' °C';
+  const allowed=t.state==='normal'||t.state==='unavailable';
+  if(allowed&&!lastAllowed)startStream();
+  lastAllowed=allowed;
+}).catch(()=>{})}
+pollTemp();setInterval(pollTemp,2000);
+function snap(){window.open('/capture','_blank')}
+function cmdText(){
+  const changed=params.filter(p=>p.value!==p.def).map(p=>p.key+'='+p.value);
+  document.getElementById('cmd').value=changed.length
+    ?'python firmware/tools/fleet.py config '+DEVICE+' '+changed.join(' ')
+    :'(all settings at their defaults)';
 }
+function set(i,el){
+  const p=params[i];p.value=parseInt(el.value);
+  document.getElementById('v'+i).textContent=p.value;
+  fetch('/control?var='+p.key+'&val='+p.value).then(r=>r.text()).then(t=>{if(t!=='OK')alert(p.key+': '+t);refresh()});
+  cmdText();
+}
+function refresh(){fetch('/status').then(r=>r.json()).then(j=>{document.getElementById('report').textContent=JSON.stringify(j,null,1)})}
+fetch('/params').then(r=>r.json()).then(j=>{
+  params=j.params;window.DEVICE=j.device;let h='';
+  for(const [title,a,b] of groups){
+    h+='<h2>'+title+'</h2>';
+    params.slice(a,b).forEach((p,k)=>{const i=a+k;
+      h+='<div class="row"><label>'+p.key+'</label><input type="range" min="'+p.min+'" max="'+p.max+'" value="'+p.value+
+         '" onchange="set('+i+',this)"><span id="v'+i+'">'+p.value+'</span><small>'+p.help+'</small></div>'});
+  }
+  document.getElementById('controls').innerHTML=h;cmdText();refresh();
+});
 </script>
 </body></html>
 )HTML";
+
+esp_err_t sendJson(httpd_req_t *req, const JsonDocument &doc) {
+    String body;
+    serializeJson(doc, body);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, body.c_str(), body.length());
+}
 
 esp_err_t indexHandler(httpd_req_t *req) {
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);
 }
 
-// --- single snapshot -------------------------------------------------------
+// Every setting with its range, default, help text and current value.
+esp_err_t paramsHandler(httpd_req_t *req) {
+    JsonDocument doc;
+    doc["device"] = DEVICE_ID;
+    JsonArray list = doc["params"].to<JsonArray>();
+    for (int i = 0; i < P_COUNT; ++i) {
+        JsonObject p = list.add<JsonObject>();
+        p["key"] = kParams[i].key;
+        p["min"] = kParams[i].min;
+        p["max"] = kParams[i].max;
+        p["def"] = kParams[i].def;
+        p["help"] = kParams[i].help;
+        p["value"] = settings[(Param)i];
+    }
+    return sendJson(req, doc);
+}
+
+// What the sensor driver reports it is using right now.
+esp_err_t statusHandler(httpd_req_t *req) {
+    JsonDocument doc;
+    camera::report(doc.to<JsonObject>());
+    doc["cpu_mhz"] = getCpuFrequencyMhz();
+    float t = thermal::celsius();
+    if (!isnan(t)) {
+        doc["chip_temp_c"] = roundf(t * 10) / 10;
+    }
+    doc["thermal"] = thermal::stateName();
+    doc["heap_free"] = ESP.getFreeHeap();
+    return sendJson(req, doc);
+}
+
+esp_err_t thermalHandler(httpd_req_t *req) {
+    JsonDocument doc;
+    float t = thermal::celsius();
+    if (!isnan(t)) {
+        doc["chip_temp_c"] = roundf(t * 10) / 10;
+    }
+    doc["state"] = thermal::stateName();
+    doc["cutoff_c"] = settings[P_TEMP_CUTOFF_C];
+    return sendJson(req, doc);
+}
 
 esp_err_t captureHandler(httpd_req_t *req) {
+    if (!cameraAvailable) {
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        return httpd_resp_send(req, "camera paused - chip cooling down", HTTPD_RESP_USE_STRLEN);
+    }
     camera_fb_t *fb = esp_camera_fb_get();
     if (fb == nullptr) {
         httpd_resp_send_500(req);
@@ -153,7 +203,7 @@ esp_err_t streamHandler(httpd_req_t *req) {
     }
 
     char partBuf[64];
-    while (true) {
+    while (cameraAvailable) {
         camera_fb_t *fb = esp_camera_fb_get();
         if (fb == nullptr) {
             Serial.println("[Stream] capture failed");
@@ -179,10 +229,10 @@ esp_err_t streamHandler(httpd_req_t *req) {
     return res;
 }
 
-// --- live settings adjustment ----------------------------------------------
+// --- live settings adjustment: /control?var=<key>&val=<int> ----------------
 
 esp_err_t controlHandler(httpd_req_t *req) {
-    char query[64];
+    char query[96];
     char varName[32];
     char valStr[16];
 
@@ -193,49 +243,68 @@ esp_err_t controlHandler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
-    int val = atoi(valStr);
-    sensor_t *sensor = esp_camera_sensor_get();
+    JsonDocument change;
+    change[varName] = atoi(valStr);
+    int32_t oldFrameSize = settings[P_FRAME_SIZE];
+    int32_t oldXclk = settings[P_XCLK_MHZ];
+    String errors;
+    settings.apply(change.as<JsonObjectConst>(), errors);
 
-    if (!strcmp(varName, "framesize")) {
-        sensor->set_framesize(sensor, (framesize_t)val);
-    } else if (!strcmp(varName, "quality")) {
-        sensor->set_quality(sensor, val);
-    } else if (!strcmp(varName, "brightness")) {
-        sensor->set_brightness(sensor, val);
-    } else if (!strcmp(varName, "contrast")) {
-        sensor->set_contrast(sensor, val);
-    } else if (!strcmp(varName, "vflip")) {
-        sensor->set_vflip(sensor, val);
-    } else if (!strcmp(varName, "hmirror")) {
-        sensor->set_hmirror(sensor, val);
-    } else if (!strcmp(varName, "flash")) {
-        pinMode(FLASH_LED_GPIO_NUM, OUTPUT);
-        digitalWrite(FLASH_LED_GPIO_NUM, val ? HIGH : LOW);
-    } else {
-        httpd_resp_send_404(req);
-        return ESP_FAIL;
+    String result = errors.length() > 0 ? errors : String("OK");
+    if (errors.length() == 0 && !cameraAvailable) {
+        result = "saved - applies when the chip has cooled down";
+    } else if (errors.length() == 0) {
+        if (!strcmp(varName, "cpu_mhz")) {
+            setCpuFrequencyMhz(settings[P_CPU_MHZ]);
+        } else if (!strcmp(varName, "flash")) {
+            digitalWrite(FLASH_LED_GPIO_NUM, settings[P_FLASH] ? HIGH : LOW); // live preview of the LED
+        } else if (settings[P_FRAME_SIZE] != oldFrameSize || settings[P_XCLK_MHZ] != oldXclk) {
+            camera::powerDown(); // frame buffers and XCLK are fixed at init
+            if (!camera::powerUp(settings)) {
+                result = "camera re-init failed";
+            }
+        } else {
+            String unsupported;
+            if (camera::applySettings(settings, unsupported) > 0) {
+                result = "sensor rejected: " + unsupported;
+            }
+        }
     }
 
     httpd_resp_set_type(req, "text/plain");
-    return httpd_resp_send(req, "OK", 2);
+    return httpd_resp_send(req, result.c_str(), result.length());
 }
 
-void startWebServer() {
+void startWebServers() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 8;
 
     httpd_uri_t indexUri = {"/", HTTP_GET, indexHandler, nullptr};
+    httpd_uri_t paramsUri = {"/params", HTTP_GET, paramsHandler, nullptr};
+    httpd_uri_t statusUri = {"/status", HTTP_GET, statusHandler, nullptr};
     httpd_uri_t captureUri = {"/capture", HTTP_GET, captureHandler, nullptr};
-    httpd_uri_t streamUri = {"/stream", HTTP_GET, streamHandler, nullptr};
     httpd_uri_t controlUri = {"/control", HTTP_GET, controlHandler, nullptr};
-
-    if (httpd_start(&streamServer, &config) == ESP_OK) {
-        httpd_register_uri_handler(streamServer, &indexUri);
-        httpd_register_uri_handler(streamServer, &captureUri);
-        httpd_register_uri_handler(streamServer, &streamUri);
-        httpd_register_uri_handler(streamServer, &controlUri);
+    httpd_uri_t thermalUri = {"/thermal", HTTP_GET, thermalHandler, nullptr};
+    if (httpd_start(&controlServer, &config) == ESP_OK) {
+        httpd_register_uri_handler(controlServer, &thermalUri);
+        httpd_register_uri_handler(controlServer, &indexUri);
+        httpd_register_uri_handler(controlServer, &paramsUri);
+        httpd_register_uri_handler(controlServer, &statusUri);
+        httpd_register_uri_handler(controlServer, &captureUri);
+        httpd_register_uri_handler(controlServer, &controlUri);
     } else {
-        Serial.println("[WebServer] failed to start");
+        Serial.println("[WebServer] failed to start control server");
+    }
+
+    // The stream handler never returns while a browser watches, so it gets
+    // its own server - otherwise the settings controls would freeze.
+    config.server_port = 81;
+    config.ctrl_port += 1;
+    httpd_uri_t streamUri = {"/stream", HTTP_GET, streamHandler, nullptr};
+    if (httpd_start(&streamServer, &config) == ESP_OK) {
+        httpd_register_uri_handler(streamServer, &streamUri);
+    } else {
+        Serial.println("[WebServer] failed to start stream server");
     }
 }
 
@@ -246,7 +315,11 @@ void setup() {
     delay(300);
     Serial.println("\n[Camera Web Server] booting...");
 
-    if (!initCamera()) {
+    pinMode(FLASH_LED_GPIO_NUM, OUTPUT);
+    digitalWrite(FLASH_LED_GPIO_NUM, LOW);
+    setCpuFrequencyMhz(settings[P_CPU_MHZ]);
+
+    if (!camera::powerUp(settings)) {
         Serial.println("[main] camera init failed, halting");
         while (true) {
             delay(1000);
@@ -261,12 +334,43 @@ void setup() {
         }
     }
 
-    startWebServer();
-    Serial.printf("[WebServer] open http://%s/ in a browser (same WiFi network)\n",
-                   WiFi.localIP().toString().c_str());
+    startWebServers();
+    if (MDNS.begin("fluidwatch")) {
+        MDNS.addService("http", "tcp", 80);
+    }
+}
+
+// Streaming keeps the camera on, so this sketch runs the warmest: pause the
+// camera at the cutoff and bring it back once the chip has cooled.
+void handleThermal() {
+    if (!thermal::update(settings[P_TEMP_CUTOFF_C])) {
+        return;
+    }
+    Serial.printf("[Thermal] %s (chip %.1f C, cutoff %d C)\n", thermal::stateName(), thermal::celsius(),
+                  settings[P_TEMP_CUTOFF_C]);
+    if (thermal::captureAllowed()) {
+        setCpuFrequencyMhz(settings[P_CPU_MHZ]);
+        if (camera::powerUp(settings)) {
+            cameraAvailable = true;
+        }
+    } else {
+        cameraAvailable = false;
+        delay(600); // let the stream handler finish its current frame
+        camera::powerDown();
+        setCpuFrequencyMhz(80);
+    }
 }
 
 void loop() {
     wifiManager.ensureConnected();
-    delay(1000);
+    handleThermal();
+    // Repeated, so the address can be read whenever a serial monitor attaches.
+    static unsigned long lastAnnounceMs = 0;
+    if (millis() - lastAnnounceMs >= 10000UL) {
+        lastAnnounceMs = millis();
+        Serial.printf("[WebServer] open http://%s/ or http://fluidwatch.local/ - chip %.1f C (%s, raw %.2f)\n",
+                      WiFi.localIP().toString().c_str(), thermal::celsius(), thermal::stateName(),
+                      thermal::rawCelsius());
+    }
+    delay(200);
 }

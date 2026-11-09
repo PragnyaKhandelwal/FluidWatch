@@ -2,24 +2,24 @@
 
 #include "secrets.h"
 
+// Firmware version, reported in the status topic. `fleet.py release` builds
+// with -DFW_VERSION="x.y.z"; a plain `pio run` reports "dev".
+#ifndef FW_VERSION
+#define FW_VERSION "dev"
+#endif
+
 // Unique identifier for this IV stand unit - what the backend/dashboard
-// key readings against. Give each physical device a distinct ID.
+// key readings against, and its MQTT topic (fluidwatch/<DEVICE_ID>/...).
+// Give each physical device a distinct ID.
 #define DEVICE_ID "IV-CAM-01"
 
-// Deployment metadata: which bed/patient/fluid this stand is currently
-// assigned to. Static config, not something the camera detects - a nurse
-// would set these when moving the stand to a new bed. Sent along with
-// every frame so the dashboard shows a real bed card. Avoid characters
-// that need URL-encoding beyond spaces (handled automatically below).
+// Default bed card metadata sent with every frame. These are only the
+// first-boot values: change them remotely with
+// `fleet.py config IV-CAM-01 bed_label="Bed 12"` (kept across reboots).
+// Avoid characters that need URL-encoding beyond spaces.
 #define BED_LABEL "Bed 07"
 #define PATIENT_NAME "Unassigned"
 #define FLUID_LABEL "Saline 0.9%"
-
-// How often a photo is captured and uploaded, in milliseconds. A full
-// upload (capture + multipart POST + model inference round-trip) takes a
-// few seconds - don't set this much below ~5s or captures start
-// overlapping with slow uploads.
-#define SEND_INTERVAL_MS 10000UL
 
 // HTTP request timeout for the upload - higher than a typical JSON POST
 // since it's transferring an actual image and waiting on model
@@ -29,23 +29,24 @@
 // WiFi connect timeout before retrying, in milliseconds.
 #define WIFI_CONNECT_TIMEOUT_MS 15000UL
 
-// Capture settings. FRAMESIZE_VGA (640x480) is a solid default - small,
-// fast to upload, plenty of resolution for the model (which resizes to
-// 224x224 anyway - see server/app/cv/real_frame_processor.py,
-// so going higher than VGA mostly just makes uploads slower for detail
-// the model discards). Bump to FRAMESIZE_SVGA/XGA only if a real test
-// against the actual container shows the model needs more detail.
-#define CAPTURE_FRAME_SIZE FRAMESIZE_VGA
-#define CAPTURE_JPEG_QUALITY 12 // 0-63, lower = higher quality/larger file
+// How often the status topic is refreshed (uptime, heap, temperature...).
+#define STATUS_INTERVAL_MS 60000UL
 
-// Image tuning - auto exposure/white-balance stay on by default (most
-// robust across real lighting variation, and likely closest to how the
-// training photos were casually captured). Brightness/contrast/
-// saturation default to sensor-neutral (0) - if real photos of the
-// actual container look over/under-exposed or washed out, use the
-// live-preview tool (swap in src/camera_web_server.cpp.txt - see its
-// header comment) to find values that look right against the real
-// mounting/lighting, then set them here. Range for all three is -2..2.
-#define CAPTURE_BRIGHTNESS 0
-#define CAPTURE_CONTRAST 0
-#define CAPTURE_SATURATION 0
+// Capture schedule, power/heat and image settings live in
+// src/capture_config.cpp (kParams) - every one can be changed remotely, so
+// there is nothing to edit here for them.
+
+// MQTT broker for remote control and over-the-air updates - set these in
+// secrets.h (see secrets.h.example). Empty host = run without remote control.
+#ifndef MQTT_HOST
+#define MQTT_HOST ""
+#endif
+#ifndef MQTT_PORT
+#define MQTT_PORT 8883
+#endif
+#ifndef MQTT_USERNAME
+#define MQTT_USERNAME ""
+#endif
+#ifndef MQTT_PASSWORD
+#define MQTT_PASSWORD ""
+#endif

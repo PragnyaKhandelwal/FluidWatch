@@ -1,0 +1,4 @@
+# Local credentials and tuning output - never commit
+.env
+tune/
+*.jpg
