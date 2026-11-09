@@ -1,56 +1,33 @@
-# Each component keeps its own manifest - point Dependabot at each folder.
+# Security fixes only.
 #
-# Version updates run once a month (the 1st, 09:00 IST), as ONE grouped PR
-# per component (about 4 a month). Dashboard major versions are not raised
-# at all - those are upgraded deliberately. versioning-strategy "increase"
-# raises the minimum version in the manifest itself.
+# Routine version updates are OFF (open-pull-requests-limit: 0 is GitHub's
+# documented switch for that), so there are no monthly minor/major PRs.
+# Dependabot security updates are not affected by that limit: when an
+# advisory is published for something we use, it opens a PR - all fixes for
+# one component bundled together - and dependabot-auto-merge.yml merges it
+# once CI passes (unless it's a major bump).
 #
-# Non-major PRs merge themselves once CI passes
-# (workflows/dependabot-auto-merge.yml).
-#
-# Security fixes are not affected by this schedule: Dependabot security
-# updates still open a PR as soon as an advisory is published.
+# Major upgrades are done deliberately, one tested PR at a time.
 version: 2
 updates:
   - package-ecosystem: bun
     directory: /frontend
     schedule:
       interval: monthly
-      time: "09:00"
-      timezone: Asia/Kolkata
-    versioning-strategy: increase
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     groups:
-      # TanStack packages pin each other's exact versions - bump them together.
-      tanstack:
-        patterns: ["@tanstack/*"]
-      radix:
-        patterns: ["@radix-ui/*"]
-      frontend-minor-and-patch:
+      frontend-security:
+        applies-to: security-updates
         patterns: ["*"]
-        update-types: [minor, patch]
-    ignore:
-      # No major-version PRs for the dashboard: each one came as its own PR
-      # and most need code changes (TypeScript 7, recharts 3, vitest 5,
-      # react-day-picker 10, eslint-plugin-react-hooks 7 - all failed or
-      # needed rewrites). Do majors deliberately, one at a time. Security
-      # fixes still arrive as their own PRs regardless of this rule.
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: pip
     directory: /server
     schedule:
       interval: monthly
-      time: "09:00"
-      timezone: Asia/Kolkata
-    versioning-strategy: increase
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     groups:
-      # No update-types filter: these are `>=` lower bounds, so Dependabot
-      # can't classify them as minor/patch and the filter matched nothing
-      # (one PR per package). Raising a lower bound is low-risk; CI decides.
-      server:
+      server-security:
+        applies-to: security-updates
         patterns: ["*"]
     ignore:
       # Dependabot rewrites these as e.g. `torch>=2.14.1+cpu`, which pip
@@ -63,21 +40,18 @@ updates:
     directory: /firmware/tools
     schedule:
       interval: monthly
-      time: "09:00"
-      timezone: Asia/Kolkata
-    versioning-strategy: increase
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 0
     groups:
-      fleet-tool:
+      fleet-tool-security:
+        applies-to: security-updates
         patterns: ["*"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
-      time: "09:00"
-      timezone: Asia/Kolkata
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0
     groups:
-      actions:
+      actions-security:
+        applies-to: security-updates
         patterns: ["*"]
