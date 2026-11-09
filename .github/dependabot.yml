@@ -1,10 +1,21 @@
 # Each component keeps its own manifest - point Dependabot at each folder.
+#
+# Version updates run once a month (the 1st, 09:00 IST). Minor and patch
+# bumps arrive as ONE grouped PR per component; major bumps stay separate so
+# each breaking change can be checked on its own. versioning-strategy
+# "increase" raises the minimum version in the manifest itself.
+#
+# Security fixes are not affected by this schedule: Dependabot security
+# updates still open a PR as soon as an advisory is published.
 version: 2
 updates:
   - package-ecosystem: bun
     directory: /frontend
     schedule:
-      interval: weekly
+      interval: monthly
+      time: "09:00"
+      timezone: Asia/Kolkata
+    versioning-strategy: increase
     open-pull-requests-limit: 5
     groups:
       # TanStack packages pin each other's exact versions - bump them together.
@@ -12,12 +23,22 @@ updates:
         patterns: ["@tanstack/*"]
       radix:
         patterns: ["@radix-ui/*"]
+      frontend-minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
 
   - package-ecosystem: pip
     directory: /server
     schedule:
-      interval: weekly
+      interval: monthly
+      time: "09:00"
+      timezone: Asia/Kolkata
+    versioning-strategy: increase
     open-pull-requests-limit: 5
+    groups:
+      server-minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
     ignore:
       # Dependabot rewrites these as e.g. `torch>=2.14.1+cpu`, which pip
       # rejects (a +cpu local label is only valid with ==). Upgrade torch
@@ -29,3 +50,9 @@ updates:
     directory: /
     schedule:
       interval: monthly
+      time: "09:00"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ["*"]
