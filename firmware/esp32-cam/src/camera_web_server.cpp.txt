@@ -21,6 +21,7 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <ESPmDNS.h>
 #include <WiFi.h>
 #include <esp_http_server.h>
 
@@ -290,11 +291,19 @@ void setup() {
     }
 
     startWebServers();
-    Serial.printf("[WebServer] open http://%s/ in a browser (same WiFi network)\n",
-                  WiFi.localIP().toString().c_str());
+    if (MDNS.begin("fluidwatch")) {
+        MDNS.addService("http", "tcp", 80);
+    }
 }
 
 void loop() {
     wifiManager.ensureConnected();
-    delay(1000);
+    // Repeated, so the address can be read whenever a serial monitor attaches.
+    static unsigned long lastAnnounceMs = 0;
+    if (millis() - lastAnnounceMs >= 10000UL) {
+        lastAnnounceMs = millis();
+        Serial.printf("[WebServer] open http://%s/ or http://fluidwatch.local/ (same WiFi network)\n",
+                      WiFi.localIP().toString().c_str());
+    }
+    delay(200);
 }
