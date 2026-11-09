@@ -106,6 +106,18 @@ def test_capture_command_only_sends_overrides_when_given():
     assert fleet.capture_command("t", {"flash": 1}, "mqtt")["overrides"] == {"flash": 1}
 
 
+def test_temperature_text():
+    assert fleet.temperature_text({"chip_temp_c": 54.23, "thermal": "normal"}) == "chip 54.2 C (normal)"
+    assert fleet.temperature_text({"thermal": "unavailable"}) == "chip temp n/a (unavailable)"
+    assert fleet.temperature_text({}) == "chip temp n/a (?)"
+
+
+def test_temperature_cutoff_is_a_safe_setting():
+    cutoff = next(p for p in PARAMS if p["key"] == "temp_cutoff_c")
+    # Cutoff + the 10 C critical margin must stay well under the ESP32's 125 C limit.
+    assert cutoff["max"] + 10 <= 110 and cutoff["default"] == 80
+
+
 def test_version_pattern():
     assert fleet.VERSION_RE.match("1.2.3") and fleet.VERSION_RE.match("1.2.3-beta.1")
     assert not fleet.VERSION_RE.match("v1.2") and not fleet.VERSION_RE.match("1.2")

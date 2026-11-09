@@ -29,10 +29,14 @@
 #include "camera_pins.h"
 #include "capture_config.h"
 #include "config.h"
+#include "thermal.h"
 #include "wifi_manager.h"
 
 WiFiManager wifiManager;
 CaptureConfig settings;
+// Cleared before the camera is powered down for cooling, so the stream
+// handler (on the web server's task) stops grabbing frames first.
+volatile bool cameraAvailable = true;
 httpd_handle_t controlServer = nullptr; // port 80: page, settings, snapshots
 httpd_handle_t streamServer = nullptr;  // port 81: the never-ending MJPEG stream
 
@@ -54,8 +58,11 @@ label{font-size:13px;color:#ccc}input[type=range]{width:100%}
 pre,textarea{background:#1b1b1b;border:1px solid #333;border-radius:6px;padding:8px;font-size:11px;
  white-space:pre-wrap;word-break:break-all;width:100%;box-sizing:border-box;color:#ddd}
 button{background:#234;color:#eee;border:1px solid #456;border-radius:6px;padding:6px 10px;cursor:pointer}
+#temp{display:inline-block;padding:6px 12px;border-radius:6px;background:#1d3b24;font-size:14px;margin-bottom:10px}
+#temp.cooling,#temp.critical{background:#5a1d1d}#temp.unavailable{background:#333}
 </style></head><body>
 <h1>FluidWatch camera tuning</h1>
+<div id="temp">Chip temperature: reading...</div>
 <div class="wrap">
  <div>
   <img id="stream">
@@ -67,9 +74,23 @@ button{background:#234;color:#eee;border:1px solid #456;border-radius:6px;paddin
  <div id="controls"></div>
 </div>
 <script>
-const groups=[["Schedule, power and heat",0,7],["Image format",7,9],["Image tuning",9,99]];
+const groups=[["Schedule, power and heat",0,8],["Image format",8,10],["Image tuning",10,99]];
 let params=[];
-document.getElementById('stream').src='http://'+location.hostname+':81/stream';
+let lastAllowed=true;
+function startStream(){document.getElementById('stream').src='http://'+location.hostname+':81/stream?'+Date.now()}
+startStream();
+// Read-only health metric: the ESP32's own die temperature and the cutoff state.
+function pollTemp(){fetch('/thermal').then(r=>r.json()).then(t=>{
+  const el=document.getElementById('temp');el.className=t.state;
+  el.textContent=t.state==='unavailable'
+    ?'Chip temperature: no sensor on this chip (protection off)'
+    :t.chip_temp_c===undefined?'Chip temperature: reading...'
+    :'Chip temperature: '+t.chip_temp_c.toFixed(1)+' °C · '+t.state+' · pauses at '+t.cutoff_c+' °C, resumes below '+(t.cutoff_c-10)+' °C';
+  const allowed=t.state==='normal'||t.state==='unavailable';
+  if(allowed&&!lastAllowed)startStream();
+  lastAllowed=allowed;
+}).catch(()=>{})}
+pollTemp();setInterval(pollTemp,2000);
 function snap(){window.open('/capture','_blank')}
 function cmdText(){
   const changed=params.filter(p=>p.value!==p.def).map(p=>p.key+'='+p.value);
@@ -132,12 +153,31 @@ esp_err_t statusHandler(httpd_req_t *req) {
     JsonDocument doc;
     camera::report(doc.to<JsonObject>());
     doc["cpu_mhz"] = getCpuFrequencyMhz();
-    doc["chip_temp_c"] = temperatureRead();
+    float t = thermal::celsius();
+    if (!isnan(t)) {
+        doc["chip_temp_c"] = roundf(t * 10) / 10;
+    }
+    doc["thermal"] = thermal::stateName();
     doc["heap_free"] = ESP.getFreeHeap();
     return sendJson(req, doc);
 }
 
+esp_err_t thermalHandler(httpd_req_t *req) {
+    JsonDocument doc;
+    float t = thermal::celsius();
+    if (!isnan(t)) {
+        doc["chip_temp_c"] = roundf(t * 10) / 10;
+    }
+    doc["state"] = thermal::stateName();
+    doc["cutoff_c"] = settings[P_TEMP_CUTOFF_C];
+    return sendJson(req, doc);
+}
+
 esp_err_t captureHandler(httpd_req_t *req) {
+    if (!cameraAvailable) {
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        return httpd_resp_send(req, "camera paused - chip cooling down", HTTPD_RESP_USE_STRLEN);
+    }
     camera_fb_t *fb = esp_camera_fb_get();
     if (fb == nullptr) {
         httpd_resp_send_500(req);
@@ -163,7 +203,7 @@ esp_err_t streamHandler(httpd_req_t *req) {
     }
 
     char partBuf[64];
-    while (true) {
+    while (cameraAvailable) {
         camera_fb_t *fb = esp_camera_fb_get();
         if (fb == nullptr) {
             Serial.println("[Stream] capture failed");
@@ -211,7 +251,9 @@ esp_err_t controlHandler(httpd_req_t *req) {
     settings.apply(change.as<JsonObjectConst>(), errors);
 
     String result = errors.length() > 0 ? errors : String("OK");
-    if (errors.length() == 0) {
+    if (errors.length() == 0 && !cameraAvailable) {
+        result = "saved - applies when the chip has cooled down";
+    } else if (errors.length() == 0) {
         if (!strcmp(varName, "cpu_mhz")) {
             setCpuFrequencyMhz(settings[P_CPU_MHZ]);
         } else if (!strcmp(varName, "flash")) {
@@ -242,7 +284,9 @@ void startWebServers() {
     httpd_uri_t statusUri = {"/status", HTTP_GET, statusHandler, nullptr};
     httpd_uri_t captureUri = {"/capture", HTTP_GET, captureHandler, nullptr};
     httpd_uri_t controlUri = {"/control", HTTP_GET, controlHandler, nullptr};
+    httpd_uri_t thermalUri = {"/thermal", HTTP_GET, thermalHandler, nullptr};
     if (httpd_start(&controlServer, &config) == ESP_OK) {
+        httpd_register_uri_handler(controlServer, &thermalUri);
         httpd_register_uri_handler(controlServer, &indexUri);
         httpd_register_uri_handler(controlServer, &paramsUri);
         httpd_register_uri_handler(controlServer, &statusUri);
@@ -296,14 +340,36 @@ void setup() {
     }
 }
 
+// Streaming keeps the camera on, so this sketch runs the warmest: pause the
+// camera at the cutoff and bring it back once the chip has cooled.
+void handleThermal() {
+    if (!thermal::update(settings[P_TEMP_CUTOFF_C])) {
+        return;
+    }
+    Serial.printf("[Thermal] %s (chip %.1f C, cutoff %d C)\n", thermal::stateName(), thermal::celsius(),
+                  settings[P_TEMP_CUTOFF_C]);
+    if (thermal::captureAllowed()) {
+        setCpuFrequencyMhz(settings[P_CPU_MHZ]);
+        if (camera::powerUp(settings)) {
+            cameraAvailable = true;
+        }
+    } else {
+        cameraAvailable = false;
+        delay(600); // let the stream handler finish its current frame
+        camera::powerDown();
+        setCpuFrequencyMhz(80);
+    }
+}
+
 void loop() {
     wifiManager.ensureConnected();
+    handleThermal();
     // Repeated, so the address can be read whenever a serial monitor attaches.
     static unsigned long lastAnnounceMs = 0;
     if (millis() - lastAnnounceMs >= 10000UL) {
         lastAnnounceMs = millis();
-        Serial.printf("[WebServer] open http://%s/ or http://fluidwatch.local/ (same WiFi network)\n",
-                      WiFi.localIP().toString().c_str());
+        Serial.printf("[WebServer] open http://%s/ or http://fluidwatch.local/ - chip %.1f C (%s)\n",
+                      WiFi.localIP().toString().c_str(), thermal::celsius(), thermal::stateName());
     }
     delay(200);
 }

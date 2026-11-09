@@ -16,6 +16,7 @@ enum Param : uint8_t {
     P_WARMUP_FRAMES,
     P_SETTLE_MS,
     P_FLASH,
+    P_TEMP_CUTOFF_C,
     // image format
     P_FRAME_SIZE,
     P_JPEG_QUALITY,

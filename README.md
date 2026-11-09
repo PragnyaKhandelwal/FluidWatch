@@ -336,6 +336,7 @@ programmer once.
 | `src/camera_control.cpp` | Camera power-up / capture / power-down, applying sensor settings |
 | `src/remote.cpp` | MQTT over TLS (HiveMQ Cloud), with reconnect backoff and a last-will "offline" status |
 | `src/ota.cpp` | Over-the-air install with SHA-256 check and automatic rollback |
+| `src/thermal.cpp` | Chip-temperature monitoring and the over-temperature cutoff |
 | `include/secrets.h` | Wi-Fi, `SERVER_URL`, `API_AUTH_TOKEN`, MQTT credentials (gitignored) |
 
 - **Status LED** (GPIO33, red, next to reset): on while Wi-Fi is connected.
@@ -356,9 +357,29 @@ On top of that:
 - the main loop yields to the idle task instead of spinning;
 - `xclk_mhz` can lower the sensor's clock further.
 
-`fleet.py status` shows each unit's chip temperature, but the ESP32's internal
-sensor is uncalibrated (±10 °C, and some chips always read 53.3 °C), so use it
-to watch for a trend, not as an absolute value.
+**Thermal protection.** The ESP32's own die temperature is checked every 2 s
+(smoothed) and reported everywhere as a read-only metric:
+
+- in `fleet.py status`;
+- in every capture and `tune` result;
+- as a live bar on the tuning page;
+- on the serial log.
+
+What happens at each level:
+
+| Chip temperature | What happens |
+|---|---|
+| below `temp_cutoff_c` (80 °C) | normal |
+| ≥ `temp_cutoff_c` | **cooling**: camera off, no photos, CPU at 80 MHz, until it is 10 °C below the cutoff |
+| ≥ `temp_cutoff_c` + 10 °C | **critical**: Wi-Fi and camera off, deep sleep for 10 minutes, then a fresh boot |
+
+Every change is reported as a `thermal` event.
+
+The sensor is uncalibrated (it can be off by about 10 °C) and measures the
+silicon, not the camera, so the limits sit well below the chip's 125 °C. Some
+ESP32 revision-3 chips have no working sensor and always read 53.3 °C. The
+firmware detects that and reports `thermal: unavailable` instead of trusting
+the number; there is no automatic cutoff on such a chip.
 
 ### Settings
 
@@ -374,6 +395,7 @@ reboots, and are listed by `python firmware/tools/fleet.py params`:
 | `warmup_frames` | 0..30 | 5 | Frames thrown away after power-up so exposure and white balance settle |
 | `settle_ms` | 0..5000 | 100 | Extra wait after power-up before the warm-up frames |
 | `flash` | 0..1 | 0 | 1 = white LED on while capturing (even lighting, but can glare on glossy plastic) |
+| `temp_cutoff_c` | 50..100 | 80 | Chip temperature that pauses the camera until it cools 10 C; 10 C above it the unit shuts down |
 | `frame_size` | 0..21 | 8 | Resolution: QVGA=5 (320x240), VGA=8 (640x480), SVGA=9, XGA=10, HD=11, UXGA=13, QSXGA=21 |
 | `jpeg_quality` | 4..63 | 10 | JPEG quality, lower = better and bigger. Below ~8 can overflow at large sizes |
 | `brightness` | -2..2 | 0 | Overall brightness offset |
@@ -547,7 +569,7 @@ built. To use one, swap it in for `main.cpp`:
 |---|---|
 | Backend | `ruff` lint (rules in `server/ruff.toml`), then `pytest` in `server/` (63 tests): every endpoint, auth, both WebSocket feeds, exports, reading derivation, path sanitizing, real-model smoke tests |
 | Dashboard | `lint`, `typecheck`, Vitest (37 tests for the telemetry logic), production build in `frontend/` |
-| Firmware | `pio run` compiles `firmware/esp32-cam` against `secrets.h.example`; `ruff` + `pytest` for `firmware/tools/fleet.py` (25 tests) |
+| Firmware | `pio run` compiles `firmware/esp32-cam` against `secrets.h.example`; `ruff` + `pytest` for `firmware/tools/fleet.py` (27 tests) |
 | End-to-end | Builds the backend Docker image, runs it, then `server/e2e/smoke_test.py` drives it from outside: frame upload → model → stored reading → `/ws/bedfeed` message → latest frame, devices, CSV/XLSX |
 | Security | See [Security](#security) |
 

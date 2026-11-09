@@ -342,6 +342,14 @@ def capture_command(tag: str, overrides: dict | None, deliver: str) -> dict:
     return cmd
 
 
+def temperature_text(report: dict) -> str:
+    """'chip 54.2 C (normal)' from a status or capture event (read-only metric)."""
+    state = report.get("thermal", "?")
+    if state == "unavailable" or "chip_temp_c" not in report:
+        return f"chip temp n/a ({state})"
+    return f"chip {report['chip_temp_c']:.1f} C ({state})"
+
+
 # --- commands ---------------------------------------------------------------------
 
 
@@ -383,7 +391,7 @@ def cmd_status(args) -> None:
         last = st.get("last_capture", {})
         print(
             f"{device}: online, fw {st.get('fw')}, up {st.get('uptime_s', 0) // 60} min, "
-            f"wifi {st.get('rssi')} dBm, cpu {st.get('cpu_mhz')} MHz, chip ~{st.get('chip_temp_c', 0):.0f} C, "
+            f"wifi {st.get('rssi')} dBm, cpu {st.get('cpu_mhz')} MHz, {temperature_text(st)}, "
             f"heap {st.get('heap_free', 0) // 1024} KB, every {st.get('interval_s')} s, "
             f"last photo {last.get('ago_s', '?')} s ago (HTTP {last.get('http', '?')})"
             + (f", OTA: {st['ota']}" if st.get("ota") else "")
@@ -505,7 +513,7 @@ def cmd_tune(args) -> None:
         summary.append(row)
         print(
             f"{name:<16} {row.get('width')}x{row.get('height')}  {len(jpeg) // 1024:>4} KB  "
-            f"{row.get('took_ms', '?')} ms  {overrides}"
+            f"{row.get('took_ms', '?')} ms  {temperature_text(row)}  {overrides}"
         )
     broker.close()
     (out / "summary.json").write_text(json.dumps(summary, indent=2))

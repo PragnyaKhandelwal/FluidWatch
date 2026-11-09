@@ -10,7 +10,11 @@
 #include "config.h"
 #include "ota.h"
 #include "remote.h"
+#include "thermal.h"
 #include "wifi_manager.h"
+
+#include <esp_sleep.h>
+#include <math.h>
 
 namespace {
 
@@ -71,6 +75,15 @@ void applyCpuClock() {
     setCpuFrequencyMhz(config[P_CPU_MHZ]);
 }
 
+// Read-only health metric, attached to status and every capture event.
+void addTemperature(JsonDocument &doc) {
+    float t = thermal::celsius();
+    if (!isnan(t)) {
+        doc["chip_temp_c"] = roundf(t * 10) / 10;
+    }
+    doc["thermal"] = thermal::stateName();
+}
+
 void publishEvent(const char *type, JsonDocument &doc) {
     doc["type"] = type;
     doc["uptime_s"] = millis() / 1000;
@@ -92,9 +105,8 @@ void publishStatus() {
     doc["rssi"] = WiFi.RSSI();
     doc["uptime_s"] = millis() / 1000;
     doc["cpu_mhz"] = getCpuFrequencyMhz();
-    // The ESP32's internal sensor is uncalibrated (+-10 C, and some chips
-    // always read 53.3) - good for spotting a trend, not an absolute value.
-    doc["chip_temp_c"] = temperatureRead();
+    addTemperature(doc);
+    doc["temp_cutoff_c"] = config[P_TEMP_CUTOFF_C];
     doc["heap_free"] = ESP.getFreeHeap();
     doc["psram_free"] = ESP.getFreePsram();
     doc["camera_on"] = camera::isOn();
@@ -157,7 +169,7 @@ int uploadFrame(camera_fb_t *fb, float &fillPercent) {
     int statusCode = http.POST(buf, totalLen);
     String body = http.getString();
     if (statusCode >= 200 && statusCode < 300) {
-        Serial.printf("[Upload] OK (%d)\n", statusCode);
+        Serial.printf("[Upload] OK (%d), chip %.1f C\n", statusCode, thermal::celsius());
         JsonDocument reading;
         if (deserializeJson(reading, body) == DeserializationError::Ok && reading["fluid_level_percent"].is<float>()) {
             fillPercent = reading["fluid_level_percent"].as<float>();
@@ -175,6 +187,13 @@ int uploadFrame(camera_fb_t *fb, float &fillPercent) {
 // let exposure settle, capture, then deliver to the backend or as an MQTT
 // photo, and power down again.
 void runCapture(const CaptureConfig &cfg, bool toServer, const char *tag, bool oneOff) {
+    if (!thermal::captureAllowed()) {
+        Serial.printf("[main] chip at %.1f C - camera paused until it cools\n", thermal::celsius());
+        if (oneOff || strcmp(tag, "scheduled") != 0) {
+            publishError("capture_skipped", "cooling down: chip at " + String(thermal::celsius(), 1) + " C");
+        }
+        return;
+    }
     unsigned long startMs = millis();
 
     // A one-off capture with different settings needs a fresh init (frame
@@ -224,7 +243,49 @@ void runCapture(const CaptureConfig &cfg, bool toServer, const char *tag, bool o
     }
 
     doc["took_ms"] = millis() - startMs;
+    addTemperature(doc);
     publishEvent("capture", doc);
+}
+
+// Thermal state changes: pause the camera and slow the CPU while cooling,
+// resume afterwards, and shut down completely if it keeps heating.
+void handleThermal() {
+    if (!thermal::update(config[P_TEMP_CUTOFF_C])) {
+        return;
+    }
+    JsonDocument doc;
+    addTemperature(doc);
+    doc["temp_cutoff_c"] = config[P_TEMP_CUTOFF_C];
+    publishEvent("thermal", doc);
+    Serial.printf("[Thermal] %s (chip %.1f C, cutoff %d C)\n", thermal::stateName(), thermal::celsius(),
+                  config[P_TEMP_CUTOFF_C]);
+
+    switch (thermal::state()) {
+    case thermal::State::Cooling:
+        camera::powerDown();
+        setCpuFrequencyMhz(80);
+        break;
+    case thermal::State::Critical: {
+        // Last resort: everything off for 10 minutes, then a fresh boot.
+        publishStatus();
+        delay(500);
+        camera::powerDown();
+        digitalWrite(FLASH_LED_GPIO_NUM, LOW);
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        Serial.println("[Thermal] critical - deep sleep for 10 minutes");
+        Serial.flush();
+        esp_sleep_enable_timer_wakeup(10ULL * 60ULL * 1000000ULL);
+        esp_deep_sleep_start();
+        break;
+    }
+    default: // back to normal, or no sensor
+        applyCpuClock();
+        if (!config[P_CAMERA_SLEEP]) {
+            camera::powerUp(config);
+        }
+        break;
+    }
 }
 
 void handleConfig(const String &payload) {
@@ -238,11 +299,14 @@ void handleConfig(const String &payload) {
     String errors;
     int applied = config.apply(doc.as<JsonObjectConst>(), errors);
     saveSettings();
-    applyCpuClock();
+    bool cooling = !thermal::captureAllowed();
+    if (!cooling) {
+        applyCpuClock(); // while cooling the CPU stays at 80 MHz
+    }
 
     bool needsInit = config[P_FRAME_SIZE] != previous[P_FRAME_SIZE] || config[P_XCLK_MHZ] != previous[P_XCLK_MHZ];
     String unsupported;
-    if (config[P_CAMERA_SLEEP]) {
+    if (config[P_CAMERA_SLEEP] || cooling) {
         camera::powerDown();
     } else if (!camera::isOn() || needsInit) {
         camera::powerDown();
@@ -409,6 +473,7 @@ void loop() {
         }
     }
     ota::loop();
+    handleThermal();
 
     if (pendingConfig.length() > 0) {
         String payload = pendingConfig;

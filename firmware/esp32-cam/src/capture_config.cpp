@@ -12,6 +12,7 @@ const ParamSpec kParams[P_COUNT] = {
     {"warmup_frames", 0, 30, 5, "Frames thrown away after power-up so exposure and white balance settle"},
     {"settle_ms", 0, 5000, 100, "Extra wait after power-up before the warm-up frames"},
     {"flash", 0, 1, 0, "1 = white LED on while capturing (even lighting, but can glare on glossy plastic)"},
+    {"temp_cutoff_c", 50, 100, 80, "Chip temperature that pauses the camera until it cools 10 C; 10 C above it the unit shuts down"},
     {"frame_size", 0, 21, 8, "Resolution: QVGA=5 (320x240), VGA=8 (640x480), SVGA=9, XGA=10, HD=11, UXGA=13, QSXGA=21"},
     {"jpeg_quality", 4, 63, 10, "JPEG quality, lower = better and bigger. Below ~8 can overflow at large sizes"},
     {"brightness", -2, 2, 0, "Overall brightness offset"},
