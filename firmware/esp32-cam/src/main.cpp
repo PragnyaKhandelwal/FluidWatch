@@ -258,7 +258,7 @@ void handleThermal() {
     doc["temp_cutoff_c"] = config[P_TEMP_CUTOFF_C];
     publishEvent("thermal", doc);
     Serial.printf("[Thermal] %s (chip %.1f C, cutoff %d C)\n", thermal::stateName(), thermal::celsius(),
-                  config[P_TEMP_CUTOFF_C]);
+                  (int)config[P_TEMP_CUTOFF_C]);
 
     switch (thermal::state()) {
     case thermal::State::Cooling:
