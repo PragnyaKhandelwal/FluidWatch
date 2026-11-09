@@ -610,21 +610,18 @@ repo's plan, so CI's **Security** job covers the same ground for free:
   (dashboard; fails on high or critical). `frontend/package.json`
   `overrides` pins patched versions of transitive build-tool packages.
   `torch`/`torchvision` CPU wheels aren't on PyPI, so pip-audit skips them.
-- **Dependabot:** version updates once a month (the 1st, 09:00 IST) for
-  `frontend/`, `server/`, `firmware/tools/` and the CI actions
-  (`.github/dependabot.yml`).
-  - Each component gets one grouped PR (about 4 a month). Dashboard major
-    versions are skipped and upgraded by hand. Updates raise the minimum
-    version in the manifest itself
-    (`versioning-strategy: increase`).
-  - Anything that isn't a major bump **merges itself** once all required
-    checks pass (`.github/workflows/dependabot-auto-merge.yml`; needs
-    **Settings → General → Allow auto-merge**). Only an actions or server
-    major bump needs a person.
-  - Security-fix PRs are separate, still open as soon as an advisory lands,
-    and auto-merge the same way.
-  - torch is excluded from these and upgraded by hand against the saved
-    model checkpoint.
+- **Dependabot: security fixes only** (`.github/dependabot.yml`) for
+  `frontend/`, `server/`, `firmware/tools/` and the CI actions.
+  - Routine version updates are off (`open-pull-requests-limit: 0`): no
+    monthly minor or major PRs. Majors are upgraded deliberately, one tested
+    PR at a time.
+  - When a vulnerability is published for something we use, Dependabot opens
+    one PR per component with all its fixes. That PR **merges itself** once
+    the required checks pass (`.github/workflows/dependabot-auto-merge.yml`;
+    needs **Settings → General → Allow auto-merge**), unless it's a major
+    bump.
+  - torch is excluded and upgraded by hand against the saved model
+    checkpoint.
 
 Backend API writes require the bearer token (`API_AUTH_TOKEN`); uploaded
 device IDs are sanitized before they become file names; corrupt uploads are
