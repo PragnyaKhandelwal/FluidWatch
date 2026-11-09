@@ -1,5 +1,6 @@
 #include "thermal.h"
 
+#include <esp_wifi.h>
 #include <math.h>
 
 namespace thermal {
@@ -7,19 +8,42 @@ namespace thermal {
 namespace {
 
 constexpr unsigned long kSampleIntervalMs = 2000UL;
-constexpr float kSmoothing = 0.3f;         // weight of each new sample
-constexpr float kNoSensorReading = 53.33f; // what temperatureRead() returns without a sensor
-// A real sensor jitters by its 0.56 C step within a few samples; this many
-// identical 53.33 readings in a row (~30 s) means there is no sensor. The
-// first reading after power-up can differ, so only the latest run counts.
-constexpr int kNoSensorRun = 15;
+constexpr float kSmoothing = 0.3f; // weight of each new sample
+// temperatureRead() returns exactly this (raw 128 F) when the sensor has no
+// fresh conversion - which on the classic ESP32 is whenever the Wi-Fi radio
+// (which powers the sensor's ADC) is asleep. Such samples are skipped, not
+// averaged in. A real 53.33 C reading is lost too, which costs nothing.
+constexpr float kNoReading = 53.33f;
+// No real reading for this long means this chip's sensor doesn't work.
+constexpr unsigned long kUnavailableAfterMs = 60000UL;
 
 float smoothed = NAN;
 float lastRaw = NAN;
 State current = State::Normal;
 unsigned long lastSampleMs = 0;
+unsigned long lastValidMs = 0;
 bool sampled = false;
-int noSensorRun = 0;
+
+bool isNoReading(float t) {
+    return fabsf(t - kNoReading) < 0.05f;
+}
+
+// One reading, with the radio kept awake for a moment if modem sleep left
+// the sensor unpowered.
+float readSensor() {
+    float t = temperatureRead();
+    wifi_ps_type_t ps;
+    if (!isNoReading(t) || esp_wifi_get_ps(&ps) != ESP_OK || ps == WIFI_PS_NONE) {
+        return t;
+    }
+    esp_wifi_set_ps(WIFI_PS_NONE);
+    for (int i = 0; i < 5 && isNoReading(t); ++i) {
+        delay(10);
+        t = temperatureRead();
+    }
+    esp_wifi_set_ps(ps);
+    return t;
+}
 
 } // namespace
 
@@ -31,28 +55,27 @@ bool update(int32_t cutoffC) {
     sampled = true;
     lastSampleMs = now;
 
-    float reading = temperatureRead();
+    float reading = readSensor();
     lastRaw = reading;
-    noSensorRun = fabsf(reading - kNoSensorReading) < 0.05f ? noSensorRun + 1 : 0;
-    if (noSensorRun >= kNoSensorRun) {
-        bool changed = current != State::Unavailable;
-        current = State::Unavailable;
-        smoothed = NAN;
-        return changed;
-    }
-    if (reading < -40.0f || reading > 150.0f) {
-        return false; // glitch
-    }
-    smoothed = isnan(smoothed) ? reading : smoothed + kSmoothing * (reading - smoothed);
-
     State next = current;
-    if (smoothed >= cutoffC + kCriticalMarginC) {
-        next = State::Critical;
-    } else if (smoothed >= cutoffC) {
-        next = current == State::Critical ? State::Critical : State::Cooling;
-    } else if (smoothed <= cutoffC - kResumeHysteresisC || current == State::Unavailable) {
-        next = State::Normal;
+
+    if (isNoReading(reading) || reading < -40.0f || reading > 150.0f) {
+        if (now - lastValidMs >= kUnavailableAfterMs) {
+            next = State::Unavailable;
+            smoothed = NAN;
+        }
+    } else {
+        lastValidMs = now;
+        smoothed = isnan(smoothed) ? reading : smoothed + kSmoothing * (reading - smoothed);
+        if (smoothed >= cutoffC + kCriticalMarginC) {
+            next = State::Critical;
+        } else if (smoothed >= cutoffC) {
+            next = current == State::Critical ? State::Critical : State::Cooling;
+        } else if (smoothed <= cutoffC - kResumeHysteresisC || current == State::Unavailable) {
+            next = State::Normal;
+        }
     }
+
     bool changed = next != current;
     current = next;
     return changed;

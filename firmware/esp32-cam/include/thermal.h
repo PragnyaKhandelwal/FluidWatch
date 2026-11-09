@@ -9,8 +9,9 @@
 //               until the chip is back below cutoff - kResumeHysteresisC
 //   critical    reached cutoff + kCriticalMarginC: the caller shuts down
 //               (deep sleep) to protect the board
-//   unavailable this chip doesn't have a working sensor (it reads a constant
-//               53.3 C, as on many ESP32 revision-3 chips) - no protection
+//   unavailable no real reading for a minute (the sensor only answers while
+//               the Wi-Fi radio is awake; otherwise it returns 53.33 C) -
+//               no protection until readings come back
 //
 // The sensor is uncalibrated (it can be off by about 10 C) and reads the
 // silicon die, not the camera, so the cutoff has a generous margin below the

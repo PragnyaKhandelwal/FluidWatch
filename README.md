@@ -376,10 +376,13 @@ What happens at each level:
 Every change is reported as a `thermal` event.
 
 The sensor is uncalibrated (it can be off by about 10 °C) and measures the
-silicon, not the camera, so the limits sit well below the chip's 125 °C. Some
-ESP32 revision-3 chips have no working sensor and always read 53.3 °C. The
-firmware detects that and reports `thermal: unavailable` instead of trusting
-the number; there is no automatic cutoff on such a chip.
+silicon, not the camera, so the limits sit well below the chip's 125 °C.
+On the classic ESP32 the sensor is powered by the Wi-Fi radio. While modem
+sleep has the radio idle, it returns a fixed 53.33 °C. The firmware skips that
+value and keeps the radio awake for a few milliseconds per reading. On the
+test unit (rev 3.1) this gave real readings: 37 °C at boot, climbing about
+1 °C a minute while streaming. If no real reading arrives for a minute, it
+reports `thermal: unavailable`, and the cutoff is off until readings return.
 
 ### Settings
 
