@@ -418,10 +418,15 @@ repo's plan, so CI's **Security** job covers the same ground for free:
   (dashboard; fails on high or critical). `frontend/package.json`
   `overrides` pins patched versions of transitive build-tool packages.
   `torch`/`torchvision` CPU wheels aren't on PyPI, so pip-audit skips them.
-- **Dependabot:** weekly update PRs for `frontend/`, `server/` and the CI
-  actions (`.github/dependabot.yml`), plus automatic security-fix PRs when
-  an advisory lands. torch is excluded from these and upgraded by hand
-  against the saved model checkpoint.
+- **Dependabot:** version updates once a month (the 1st, 09:00 IST) for
+  `frontend/`, `server/` and the CI actions (`.github/dependabot.yml`).
+  - Minor and patch bumps arrive as one grouped PR per component, and each
+    major bump comes as its own PR. Updates raise the minimum version in the
+    manifest itself (`versioning-strategy: increase`).
+  - Security-fix PRs are separate and still open as soon as an advisory
+    lands.
+  - torch is excluded from these and upgraded by hand against the saved
+    model checkpoint.
 
 Backend API writes require the bearer token (`API_AUTH_TOKEN`); uploaded
 device IDs are sanitized before they become file names; corrupt uploads are
