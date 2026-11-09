@@ -26,7 +26,8 @@ enum class State { Normal, Cooling, Critical, Unavailable };
 // Returns true when the state changed on this call.
 bool update(int32_t cutoffC);
 
-float celsius(); // smoothed reading; NAN until the first sample or if unavailable
+float celsius();    // smoothed reading; NAN until the first sample or if unavailable
+float rawCelsius(); // last unsmoothed reading, for diagnostics
 State state();
 const char *stateName(); // "normal", "cooling", "critical", "unavailable"
 bool captureAllowed();   // normal, or no sensor to go by

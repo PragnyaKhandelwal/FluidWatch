@@ -368,8 +368,9 @@ void loop() {
     static unsigned long lastAnnounceMs = 0;
     if (millis() - lastAnnounceMs >= 10000UL) {
         lastAnnounceMs = millis();
-        Serial.printf("[WebServer] open http://%s/ or http://fluidwatch.local/ - chip %.1f C (%s)\n",
-                      WiFi.localIP().toString().c_str(), thermal::celsius(), thermal::stateName());
+        Serial.printf("[WebServer] open http://%s/ or http://fluidwatch.local/ - chip %.1f C (%s, raw %.2f)\n",
+                      WiFi.localIP().toString().c_str(), thermal::celsius(), thermal::stateName(),
+                      thermal::rawCelsius());
     }
     delay(200);
 }
