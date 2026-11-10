@@ -30,7 +30,7 @@ const ParamSpec kParams[P_COUNT] = {
     {"aec_value", 0, 1200, 300, "Manual exposure time, used when aec = 0"},
     {"agc", 0, 1, 1, "Auto gain. 0 = use agc_gain"},
     {"agc_gain", 0, 30, 0, "Manual gain when agc = 0. Higher = brighter but noisier"},
-    {"gainceiling", 0, 6, 2, "Max auto gain: 0=2x 1=4x 2=8x 3=16x 4=32x 5=64x 6=128x. Lower = less noise"},
+    {"gainceiling", 0, 6, 3, "Max auto gain: 0=2x 1=4x 2=8x 3=16x 4=32x 5=64x 6=128x. Higher = brighter in dim light, more noise"},
     {"bpc", 0, 1, 0, "Black pixel correction"},
     {"wpc", 0, 1, 1, "White pixel correction (hides hot pixels)"},
     {"raw_gma", 0, 1, 1, "Gamma correction"},

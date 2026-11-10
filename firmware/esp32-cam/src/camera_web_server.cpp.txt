@@ -101,7 +101,12 @@ function cmdText(){
 function set(i,el){
   const p=params[i];p.value=parseInt(el.value);
   document.getElementById('v'+i).textContent=p.value;
-  fetch('/control?var='+p.key+'&val='+p.value).then(r=>r.text()).then(t=>{if(t!=='OK')alert(p.key+': '+t);refresh()});
+  fetch('/control?var='+p.key+'&val='+p.value).then(r=>r.text()).then(t=>{
+    if(t!=='OK')alert(p.key+': '+t);
+    // These restart the camera or the clock, which ends the stream: reconnect it.
+    if(['cpu_mhz','frame_size','xclk_mhz'].includes(p.key))setTimeout(startStream,300);
+    refresh();
+  });
   cmdText();
 }
 function refresh(){fetch('/status').then(r=>r.json()).then(j=>{document.getElementById('report').textContent=JSON.stringify(j,null,1)})}
@@ -231,6 +236,13 @@ esp_err_t streamHandler(httpd_req_t *req) {
 
 // --- live settings adjustment: /control?var=<key>&val=<int> ----------------
 
+// Stops the stream handler (on the stream server's task) from grabbing
+// frames, and gives it time to finish the one it is sending.
+void pauseStream() {
+    cameraAvailable = false;
+    delay(600);
+}
+
 esp_err_t controlHandler(httpd_req_t *req) {
     char query[96];
     char varName[32];
@@ -255,12 +267,19 @@ esp_err_t controlHandler(httpd_req_t *req) {
         result = "saved - applies when the chip has cooled down";
     } else if (errors.length() == 0) {
         if (!strcmp(varName, "cpu_mhz")) {
+            // A clock change mid-frame breaks the stream's transfer: pause it,
+            // switch, resume. The page reconnects the stream afterwards.
+            pauseStream();
             setCpuFrequencyMhz(settings[P_CPU_MHZ]);
+            cameraAvailable = true;
         } else if (!strcmp(varName, "flash")) {
             digitalWrite(FLASH_LED_GPIO_NUM, settings[P_FLASH] ? HIGH : LOW); // live preview of the LED
         } else if (settings[P_FRAME_SIZE] != oldFrameSize || settings[P_XCLK_MHZ] != oldXclk) {
+            pauseStream();
             camera::powerDown(); // frame buffers and XCLK are fixed at init
-            if (!camera::powerUp(settings)) {
+            if (camera::powerUp(settings)) {
+                cameraAvailable = true;
+            } else {
                 result = "camera re-init failed";
             }
         } else {
