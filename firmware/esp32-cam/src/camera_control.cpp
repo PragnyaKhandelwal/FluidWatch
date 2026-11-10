@@ -109,13 +109,20 @@ int applySettings(const CaptureConfig &cfg, String &unsupported) {
     track(s->set_whitebal(s, cfg[P_AWB]), "awb", rejected, unsupported);
     track(s->set_awb_gain(s, cfg[P_AWB_GAIN]), "awb_gain", rejected, unsupported);
     track(s->set_wb_mode(s, cfg[P_WB_MODE]), "wb_mode", rejected, unsupported);
-    track(s->set_exposure_ctrl(s, cfg[P_AEC]), "aec", rejected, unsupported);
+    // Writing a manual exposure/gain value can switch the OV5640 out of auto
+    // mode (frames stuck dark), so the manual values are only sent when auto
+    // is off, and the auto switches are written last so they always win.
+    if (!cfg[P_AEC]) {
+        track(s->set_aec_value(s, cfg[P_AEC_VALUE]), "aec_value", rejected, unsupported);
+    }
+    if (!cfg[P_AGC]) {
+        track(s->set_agc_gain(s, cfg[P_AGC_GAIN]), "agc_gain", rejected, unsupported);
+    }
+    track(s->set_gainceiling(s, (gainceiling_t)cfg[P_GAINCEILING]), "gainceiling", rejected, unsupported);
     track(s->set_aec2(s, cfg[P_AEC2]), "aec2", rejected, unsupported);
     track(s->set_ae_level(s, cfg[P_AE_LEVEL]), "ae_level", rejected, unsupported);
-    track(s->set_aec_value(s, cfg[P_AEC_VALUE]), "aec_value", rejected, unsupported);
+    track(s->set_exposure_ctrl(s, cfg[P_AEC]), "aec", rejected, unsupported);
     track(s->set_gain_ctrl(s, cfg[P_AGC]), "agc", rejected, unsupported);
-    track(s->set_agc_gain(s, cfg[P_AGC_GAIN]), "agc_gain", rejected, unsupported);
-    track(s->set_gainceiling(s, (gainceiling_t)cfg[P_GAINCEILING]), "gainceiling", rejected, unsupported);
     track(s->set_bpc(s, cfg[P_BPC]), "bpc", rejected, unsupported);
     track(s->set_wpc(s, cfg[P_WPC]), "wpc", rejected, unsupported);
     track(s->set_raw_gma(s, cfg[P_RAW_GMA]), "raw_gma", rejected, unsupported);
