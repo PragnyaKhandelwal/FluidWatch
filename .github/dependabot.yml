@@ -1,35 +1,44 @@
-# Security fixes only.
+# As few dependency PRs as possible:
 #
-# Routine version updates are OFF (open-pull-requests-limit: 0 is GitHub's
-# documented switch for that), so there are no monthly minor/major PRs.
-# Dependabot security updates are not affected by that limit: when an
-# advisory is published for something we use, it opens a PR - all fixes for
-# one component bundled together - and dependabot-auto-merge.yml merges it
-# once CI passes (unless it's a major bump).
+# - ONE pull request every 6 months for the whole repo (dashboard, backend,
+#   fleet.py tools and CI actions together), via a multi-ecosystem group.
+# - Minor and patch versions only: majors need code changes and are done
+#   deliberately, one tested PR at a time.
+# - Cooldown: a version is only proposed once it has been out for 90 days,
+#   so the PR carries settled releases, not last week's.
+# - Security fixes are separate and not on this schedule: Dependabot opens
+#   them as soon as an advisory affects us.
 #
-# Major upgrades are done deliberately, one tested PR at a time.
+# Non-major PRs merge themselves once CI passes (dependabot-auto-merge.yml).
 version: 2
+
+multi-ecosystem-groups:
+  dependencies:
+    schedule:
+      interval: semiannually
+
 updates:
   - package-ecosystem: bun
     directory: /frontend
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 0
-    groups:
-      frontend-security:
-        applies-to: security-updates
-        patterns: ["*"]
+    multi-ecosystem-group: dependencies
+    patterns: ["*"]
+    versioning-strategy: increase
+    cooldown:
+      default-days: 90
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: pip
     directory: /server
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 0
-    groups:
-      server-security:
-        applies-to: security-updates
-        patterns: ["*"]
+    multi-ecosystem-group: dependencies
+    patterns: ["*"]
+    versioning-strategy: increase
+    cooldown:
+      default-days: 90
     ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
       # Dependabot rewrites these as e.g. `torch>=2.14.1+cpu`, which pip
       # rejects (a +cpu local label is only valid with ==). Upgrade torch
       # deliberately, re-checking the saved model checkpoint loads.
@@ -38,20 +47,21 @@ updates:
 
   - package-ecosystem: pip
     directory: /firmware/tools
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 0
-    groups:
-      fleet-tool-security:
-        applies-to: security-updates
-        patterns: ["*"]
+    multi-ecosystem-group: dependencies
+    patterns: ["*"]
+    versioning-strategy: increase
+    cooldown:
+      default-days: 90
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 0
-    groups:
-      actions-security:
-        applies-to: security-updates
-        patterns: ["*"]
+    multi-ecosystem-group: dependencies
+    patterns: ["*"]
+    cooldown:
+      default-days: 90
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
