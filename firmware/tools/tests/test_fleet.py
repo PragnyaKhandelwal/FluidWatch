@@ -39,10 +39,14 @@ def test_frame_sizes_match_esp32_camera():
     assert frame_size["max"] == len(FRAME_SIZES) - 1
 
 
-def test_firmware_defaults_include_labels():
-    defaults = fleet.firmware_defaults(PARAMS)
-    assert defaults["interval_s"] == 10 and defaults["camera_sleep"] == 1
-    assert defaults["bed_label"] and defaults["fluid_label"]
+def test_config_payload_keeps_only_explicit_keys_and_resets():
+    stored, sent = fleet.config_payload({"contrast": 1, "flash": 1}, {"ae_level": 2}, ["flash"])
+    assert stored == {"contrast": 1, "ae_level": 2}
+    assert sent == {"reset": True, "contrast": 1, "ae_level": 2}
+    # Setting a key to the table default is still explicit (the default means
+    # "sensor's own value" on the unit), so it is kept, not dropped.
+    stored, _ = fleet.config_payload({}, {"bpc": 1}, [])
+    assert stored == {"bpc": 1}
 
 
 # --- validation -----------------------------------------------------------------------

@@ -63,19 +63,27 @@ const char *frameSizeName(int32_t frameSize);
 
 struct CaptureConfig {
     int32_t v[P_COUNT];
+    // Which settings were set explicitly (config, NVS, the tuning page). Only
+    // those are written to the sensor; everything else keeps the OV5640's own
+    // factory tuning, which is what gives clean, well-exposed frames.
+    uint64_t explicitMask = 0;
     // Bed card metadata sent with every upload (see config.h for defaults).
     String bedLabel;
     String patientName;
     String fluidLabel;
 
-    CaptureConfig(); // every value at its default
+    CaptureConfig(); // every value at its default, nothing explicit
 
     int32_t operator[](Param p) const { return v[p]; }
+    bool isSet(Param p) const { return explicitMask & (1ULL << p); }
 
-    // Applies the keys present in `obj`. Unknown keys and out-of-range values
-    // are skipped and described in `errors`. Returns how many were applied.
+    // Applies the keys present in `obj` and marks them explicit. Unknown keys
+    // and out-of-range values are skipped and described in `errors`. Returns
+    // how many were applied.
     int apply(JsonObjectConst obj, String &errors);
 
-    void toJson(JsonObject obj) const;
-    String toJsonString() const;
+    // explicitOnly: just the settings that were set explicitly (plus the
+    // labels) - what gets persisted, so defaults stay "sensor's own".
+    void toJson(JsonObject obj, bool explicitOnly = false) const;
+    String toJsonString(bool explicitOnly = false) const;
 };

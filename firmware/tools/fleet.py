@@ -9,7 +9,8 @@ the firmware images, their release history and each unit's settings.
     python firmware/tools/fleet.py watch IV-CAM-01            # live events from one unit
     python firmware/tools/fleet.py config IV-CAM-01           # show its saved settings
     python firmware/tools/fleet.py config IV-CAM-01 frame_size=SVGA contrast=1 bed_label="Bed 12"
-    python firmware/tools/fleet.py config IV-CAM-01 --reset   # back to firmware defaults
+    python firmware/tools/fleet.py config IV-CAM-01 --unset contrast   # back to the sensor default
+    python firmware/tools/fleet.py config IV-CAM-01 --reset   # everything back to defaults
     python firmware/tools/fleet.py capture IV-CAM-01 --out shot.jpg
     python firmware/tools/fleet.py tune IV-CAM-01             # one photo per preset, to compare
     python firmware/tools/fleet.py report IV-CAM-01           # what the sensor is really using
@@ -116,15 +117,13 @@ def parse_setting(text: str, params: list[dict], frame_sizes: list[str]) -> tupl
     return key, value
 
 
-def firmware_defaults(params: list[dict], config_h: Path = FIRMWARE_DIR / "include" / "config.h") -> dict:
-    """Every setting at the value a freshly flashed unit uses."""
-    defaults: dict = {p["key"]: p["default"] for p in params}
-    text = config_h.read_text(encoding="utf-8")
-    for key in LABEL_KEYS:
-        match = re.search(rf'#define\s+{key.upper()}\s+"([^"]*)"', text)
-        if match:
-            defaults[key] = match.group(1)
-    return defaults
+def config_payload(current: dict, changes: dict, unset: list[str]) -> tuple[dict, dict]:
+    """(what Supabase stores, what the unit is sent). Only explicitly set keys
+    are kept: anything not listed stays at the sensor's own factory tuning on
+    the unit. "reset" makes the unit drop what it had saved before applying
+    these, so it ends up with exactly this set."""
+    stored = {k: v for k, v in {**current, **changes}.items() if k not in unset}
+    return stored, {"reset": True, **stored}
 
 
 def normalise_overrides(overrides: dict, params: list[dict], frame_sizes: list[str]) -> dict:
@@ -419,16 +418,11 @@ def cmd_config(args) -> None:
     supabase = Supabase.from_env()
     current = {} if args.reset else supabase.get_device_config(args.device)
 
-    if not changes and not args.reset:
+    if not changes and not args.reset and not args.unset:
         print(json.dumps(current, indent=2) if current else f"{args.device} uses the firmware defaults.")
         return
 
-    # Supabase keeps only what differs from the firmware defaults; the device
-    # always gets the complete set, so a setting put back to its default (or a
-    # --reset) really overrides whatever it had saved before.
-    defaults = firmware_defaults(params)
-    updated = {k: v for k, v in {**current, **changes}.items() if defaults.get(k) != v}
-    to_send = {**defaults, **updated}
+    updated, to_send = config_payload(current, changes, args.unset)
 
     supabase.save_device_config(args.device, updated)
     broker = Broker()
@@ -637,7 +631,8 @@ def main() -> None:
     p = sub.add_parser("config", help="show or change a unit's settings")
     p.add_argument("device")
     p.add_argument("settings", nargs="*", help="key=value")
-    p.add_argument("--reset", action="store_true", help="back to firmware defaults")
+    p.add_argument("--reset", action="store_true", help="everything back to defaults")
+    p.add_argument("--unset", nargs="+", default=[], metavar="KEY", help="hand these back to the sensor default")
     p.set_defaults(func=cmd_config)
 
     p = sub.add_parser("capture", help="take a photo now")

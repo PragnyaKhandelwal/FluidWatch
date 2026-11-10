@@ -98,39 +98,47 @@ int applySettings(const CaptureConfig &cfg, String &unsupported) {
         return 1;
     }
 
+    // Only settings that were set explicitly are written. The OV5640 boots with
+    // its own tuned exposure, gamma, lens and pixel correction; overwriting
+    // all of them with nominal values gave dark frames with dotted columns.
     int rejected = 0;
-    track(s->set_quality(s, cfg[P_JPEG_QUALITY]), "jpeg_quality", rejected, unsupported);
-    track(s->set_brightness(s, cfg[P_BRIGHTNESS]), "brightness", rejected, unsupported);
-    track(s->set_contrast(s, cfg[P_CONTRAST]), "contrast", rejected, unsupported);
-    track(s->set_saturation(s, cfg[P_SATURATION]), "saturation", rejected, unsupported);
-    track(s->set_sharpness(s, cfg[P_SHARPNESS]), "sharpness", rejected, unsupported);
-    track(s->set_denoise(s, cfg[P_DENOISE]), "denoise", rejected, unsupported);
-    track(s->set_special_effect(s, cfg[P_SPECIAL_EFFECT]), "special_effect", rejected, unsupported);
-    track(s->set_whitebal(s, cfg[P_AWB]), "awb", rejected, unsupported);
-    track(s->set_awb_gain(s, cfg[P_AWB_GAIN]), "awb_gain", rejected, unsupported);
-    track(s->set_wb_mode(s, cfg[P_WB_MODE]), "wb_mode", rejected, unsupported);
+#define APPLY(param, call)                                                     \
+    if (cfg.isSet(param)) {                                                    \
+        track(call, kParams[param].key, rejected, unsupported);                \
+    }
+    APPLY(P_JPEG_QUALITY, s->set_quality(s, cfg[P_JPEG_QUALITY]));
+    APPLY(P_BRIGHTNESS, s->set_brightness(s, cfg[P_BRIGHTNESS]));
+    APPLY(P_CONTRAST, s->set_contrast(s, cfg[P_CONTRAST]));
+    APPLY(P_SATURATION, s->set_saturation(s, cfg[P_SATURATION]));
+    APPLY(P_SHARPNESS, s->set_sharpness(s, cfg[P_SHARPNESS]));
+    APPLY(P_DENOISE, s->set_denoise(s, cfg[P_DENOISE]));
+    APPLY(P_SPECIAL_EFFECT, s->set_special_effect(s, cfg[P_SPECIAL_EFFECT]));
+    APPLY(P_AWB, s->set_whitebal(s, cfg[P_AWB]));
+    APPLY(P_AWB_GAIN, s->set_awb_gain(s, cfg[P_AWB_GAIN]));
+    APPLY(P_WB_MODE, s->set_wb_mode(s, cfg[P_WB_MODE]));
     // Writing a manual exposure/gain value can switch the OV5640 out of auto
     // mode (frames stuck dark), so the manual values are only sent when auto
     // is off, and the auto switches are written last so they always win.
-    if (!cfg[P_AEC]) {
+    if (!cfg[P_AEC] && (cfg.isSet(P_AEC) || cfg.isSet(P_AEC_VALUE))) {
         track(s->set_aec_value(s, cfg[P_AEC_VALUE]), "aec_value", rejected, unsupported);
     }
-    if (!cfg[P_AGC]) {
+    if (!cfg[P_AGC] && (cfg.isSet(P_AGC) || cfg.isSet(P_AGC_GAIN))) {
         track(s->set_agc_gain(s, cfg[P_AGC_GAIN]), "agc_gain", rejected, unsupported);
     }
-    track(s->set_gainceiling(s, (gainceiling_t)cfg[P_GAINCEILING]), "gainceiling", rejected, unsupported);
-    track(s->set_aec2(s, cfg[P_AEC2]), "aec2", rejected, unsupported);
-    track(s->set_ae_level(s, cfg[P_AE_LEVEL]), "ae_level", rejected, unsupported);
-    track(s->set_exposure_ctrl(s, cfg[P_AEC]), "aec", rejected, unsupported);
-    track(s->set_gain_ctrl(s, cfg[P_AGC]), "agc", rejected, unsupported);
-    track(s->set_bpc(s, cfg[P_BPC]), "bpc", rejected, unsupported);
-    track(s->set_wpc(s, cfg[P_WPC]), "wpc", rejected, unsupported);
-    track(s->set_raw_gma(s, cfg[P_RAW_GMA]), "raw_gma", rejected, unsupported);
-    track(s->set_lenc(s, cfg[P_LENC]), "lenc", rejected, unsupported);
-    track(s->set_dcw(s, cfg[P_DCW]), "dcw", rejected, unsupported);
-    track(s->set_hmirror(s, cfg[P_HMIRROR]), "hmirror", rejected, unsupported);
-    track(s->set_vflip(s, cfg[P_VFLIP]), "vflip", rejected, unsupported);
-    track(s->set_colorbar(s, cfg[P_COLORBAR]), "colorbar", rejected, unsupported);
+    APPLY(P_GAINCEILING, s->set_gainceiling(s, (gainceiling_t)cfg[P_GAINCEILING]));
+    APPLY(P_AEC2, s->set_aec2(s, cfg[P_AEC2]));
+    APPLY(P_AE_LEVEL, s->set_ae_level(s, cfg[P_AE_LEVEL]));
+    APPLY(P_AEC, s->set_exposure_ctrl(s, cfg[P_AEC]));
+    APPLY(P_AGC, s->set_gain_ctrl(s, cfg[P_AGC]));
+    APPLY(P_BPC, s->set_bpc(s, cfg[P_BPC]));
+    APPLY(P_WPC, s->set_wpc(s, cfg[P_WPC]));
+    APPLY(P_RAW_GMA, s->set_raw_gma(s, cfg[P_RAW_GMA]));
+    APPLY(P_LENC, s->set_lenc(s, cfg[P_LENC]));
+    APPLY(P_DCW, s->set_dcw(s, cfg[P_DCW]));
+    APPLY(P_HMIRROR, s->set_hmirror(s, cfg[P_HMIRROR]));
+    APPLY(P_VFLIP, s->set_vflip(s, cfg[P_VFLIP]));
+    APPLY(P_COLORBAR, s->set_colorbar(s, cfg[P_COLORBAR]));
+#undef APPLY
     return rejected;
 }
 

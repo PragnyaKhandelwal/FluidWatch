@@ -42,6 +42,12 @@ httpd_handle_t streamServer = nullptr;  // port 81: the never-ending MJPEG strea
 
 namespace {
 
+// Streaming runs at full speed (as the original firmware did) unless cpu_mhz
+// was changed on the page.
+uint32_t streamCpuMhz() {
+    return settings.isSet(P_CPU_MHZ) ? settings[P_CPU_MHZ] : 240;
+}
+
 const char INDEX_HTML[] PROGMEM = R"HTML(
 <!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -336,7 +342,7 @@ void setup() {
 
     pinMode(FLASH_LED_GPIO_NUM, OUTPUT);
     digitalWrite(FLASH_LED_GPIO_NUM, LOW);
-    setCpuFrequencyMhz(settings[P_CPU_MHZ]);
+    setCpuFrequencyMhz(streamCpuMhz());
 
     if (!camera::powerUp(settings)) {
         Serial.println("[main] camera init failed, halting");
@@ -368,7 +374,7 @@ void handleThermal() {
     Serial.printf("[Thermal] %s (chip %.1f C, cutoff %d C)\n", thermal::stateName(), thermal::celsius(),
                   (int)settings[P_TEMP_CUTOFF_C]);
     if (thermal::captureAllowed()) {
-        setCpuFrequencyMhz(settings[P_CPU_MHZ]);
+        setCpuFrequencyMhz(streamCpuMhz());
         if (camera::powerUp(settings)) {
             cameraAvailable = true;
         }

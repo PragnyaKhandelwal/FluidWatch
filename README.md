@@ -389,10 +389,18 @@ reports `thermal: unavailable`, and the cutoff is off until readings return.
 All of these can be changed remotely (`fleet.py config`), are kept across
 reboots, and are listed by `python firmware/tools/fleet.py params`:
 
+**Image settings (brightness onwards) are only written to the sensor once you
+set them.** Until then the OV5640 keeps its own factory tuning: exposure,
+gamma, lens and pixel correction. Writing all of them with nominal values made
+frames dark, with dotted columns. Their "default" below is just the starting
+value when you first change one. `fleet.py config DEVICE --unset KEY` hands
+a setting back to the sensor. Photos are always taken at 240 MHz; `cpu_mhz` is
+the clock between photos.
+
 | Setting | Range | Default | What it does |
 |---|---|---|---|
 | `interval_s` | 5..3600 | 10 | Seconds between scheduled photos |
-| `cpu_mhz` | 80..240 | 160 | CPU clock: 80, 160 or 240 MHz. Lower = cooler and less power; 160 is the balance |
+| `cpu_mhz` | 80..240 | 160 | CPU clock between photos: 80, 160 or 240 MHz (photos are always taken at 240). Lower = cooler |
 | `camera_sleep` | 0..1 | 1 | 1 = power the camera off between photos (cooler, safer); 0 = keep it running |
 | `xclk_mhz` | 10..20 | 20 | Clock fed to the sensor. Lower runs the sensor cooler but slower; 20 is standard |
 | `warmup_frames` | 0..30 | 5 | Frames thrown away after power-up so exposure and white balance settle |
@@ -400,7 +408,7 @@ reboots, and are listed by `python firmware/tools/fleet.py params`:
 | `flash` | 0..1 | 0 | 1 = white LED on while capturing (even lighting, but can glare on glossy plastic) |
 | `temp_cutoff_c` | 50..100 | 80 | Chip temperature that pauses the camera until it cools 10 C; 10 C above it the unit shuts down |
 | `frame_size` | 0..21 | 8 | Resolution: QVGA=5 (320x240), VGA=8 (640x480), SVGA=9, XGA=10, HD=11, UXGA=13, QSXGA=21 |
-| `jpeg_quality` | 4..63 | 10 | JPEG quality, lower = better and bigger. Below ~8 can overflow at large sizes |
+| `jpeg_quality` | 4..63 | 12 | JPEG quality, lower = better and bigger. Below ~8 can overflow at large sizes |
 | `brightness` | -2..2 | 0 | Overall brightness offset |
 | `contrast` | -2..2 | 0 | Contrast. +1 makes the liquid line stand out more |
 | `saturation` | -2..2 | 0 | Colour saturation. Clear fluids need little; coloured fluids may like +1 |
@@ -417,7 +425,7 @@ reboots, and are listed by `python firmware/tools/fleet.py params`:
 | `agc` | 0..1 | 1 | Auto gain. 0 = use agc_gain |
 | `agc_gain` | 0..30 | 0 | Manual gain when agc = 0. Higher = brighter but noisier |
 | `gainceiling` | 0..6 | 3 | Max auto gain: 0=2x 1=4x 2=8x 3=16x 4=32x 5=64x 6=128x. Higher = brighter in dim light, more noise |
-| `bpc` | 0..1 | 0 | Black pixel correction |
+| `bpc` | 0..1 | 1 | Black pixel correction (hides dead pixels) |
 | `wpc` | 0..1 | 1 | White pixel correction (hides hot pixels) |
 | `raw_gma` | 0..1 | 1 | Gamma correction |
 | `lenc` | 0..1 | 1 | Lens shading correction (evens out darker corners) |
@@ -490,6 +498,7 @@ Topics, all under `fluidwatch/<DEVICE_ID>/`: `config` (retained settings),
 ```sh
 python firmware/tools/fleet.py status                       # online units: firmware, Wi-Fi, temperature, last photo
 python firmware/tools/fleet.py config IV-CAM-01 contrast=1 bed_label="Bed 12"
+python firmware/tools/fleet.py config IV-CAM-01 --unset contrast       # back to the sensor's own value
 python firmware/tools/fleet.py tune IV-CAM-01                # photos per preset -> tune/
 python firmware/tools/fleet.py capture IV-CAM-01 --out now.jpg
 python firmware/tools/fleet.py release 1.1.0 --notes "..."   # build, upload to Supabase, record SHA-256

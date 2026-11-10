@@ -68,7 +68,9 @@ void loadSettings() {
 }
 
 void saveSettings() {
-    settingsStore.putString("cfg", config.toJsonString());
+    // Only what was set explicitly, so untouched settings stay at the
+    // sensor's own defaults after a reboot too.
+    settingsStore.putString("cfg", config.toJsonString(true));
 }
 
 void applyCpuClock() {
@@ -196,6 +198,20 @@ void runCapture(const CaptureConfig &cfg, bool toServer, const char *tag, bool o
     }
     unsigned long startMs = millis();
 
+    // Photos are taken at full speed (what the old firmware always ran at:
+    // the camera DMA and JPEG handling keep up best there), then the CPU drops
+    // back to cpu_mhz for the idle time between photos.
+    struct CpuBoost {
+        CpuBoost() { setCpuFrequencyMhz(240); }
+        ~CpuBoost() {
+            if (thermal::captureAllowed()) {
+                applyCpuClock();
+            } else {
+                setCpuFrequencyMhz(80);
+            }
+        }
+    } boost;
+
     // A one-off capture with different settings needs a fresh init (frame
     // size and XCLK are fixed at init), so restart a kept-on camera for it.
     if (oneOff && camera::isOn()) {
@@ -296,6 +312,15 @@ void handleConfig(const String &payload) {
     }
 
     CaptureConfig previous = config;
+    // "reset": true starts from the firmware defaults (every image setting
+    // back to the sensor's own), then applies whatever else is in the message.
+    // fleet.py always sends it, so the unit ends up with exactly what's saved
+    // in Supabase.
+    bool reset = doc["reset"] | false;
+    doc.remove("reset");
+    if (reset) {
+        config = CaptureConfig();
+    }
     String errors;
     int applied = config.apply(doc.as<JsonObjectConst>(), errors);
     saveSettings();
@@ -304,7 +329,9 @@ void handleConfig(const String &payload) {
         applyCpuClock(); // while cooling the CPU stays at 80 MHz
     }
 
-    bool needsInit = config[P_FRAME_SIZE] != previous[P_FRAME_SIZE] || config[P_XCLK_MHZ] != previous[P_XCLK_MHZ];
+    // A reset re-inits the sensor so it really is back on its own defaults.
+    bool needsInit = reset || config[P_FRAME_SIZE] != previous[P_FRAME_SIZE] ||
+                     config[P_XCLK_MHZ] != previous[P_XCLK_MHZ];
     String unsupported;
     if (config[P_CAMERA_SLEEP] || cooling) {
         camera::powerDown();

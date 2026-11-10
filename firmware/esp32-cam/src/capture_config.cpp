@@ -1,12 +1,14 @@
 #include "capture_config.h"
 #include "config.h"
 
-// {key, min, max, default, help}. Order must match enum Param. Defaults are
-// tuned for an IV bottle/bag photographed from ~15-30 cm under ward lighting;
-// fleet.py reads this table (keep each entry on one line).
+// {key, min, max, default, help}. Order must match enum Param; fleet.py reads
+// this table (keep each entry on one line). Image settings (brightness
+// onwards) are only written to the sensor once set explicitly - until then the
+// OV5640 keeps its own factory tuning, and the default here is just the
+// value the setting starts from when you first change it.
 const ParamSpec kParams[P_COUNT] = {
     {"interval_s", 5, 3600, 10, "Seconds between scheduled photos"},
-    {"cpu_mhz", 80, 240, 160, "CPU clock: 80, 160 or 240 MHz. Lower = cooler and less power; 160 is the balance"},
+    {"cpu_mhz", 80, 240, 160, "CPU clock between photos: 80, 160 or 240 MHz (photos are always taken at 240). Lower = cooler"},
     {"camera_sleep", 0, 1, 1, "1 = power the camera off between photos (cooler, safer); 0 = keep it running"},
     {"xclk_mhz", 10, 20, 20, "Clock fed to the sensor. Lower runs the sensor cooler but slower; 20 is standard"},
     {"warmup_frames", 0, 30, 5, "Frames thrown away after power-up so exposure and white balance settle"},
@@ -14,7 +16,7 @@ const ParamSpec kParams[P_COUNT] = {
     {"flash", 0, 1, 0, "1 = white LED on while capturing (even lighting, but can glare on glossy plastic)"},
     {"temp_cutoff_c", 50, 100, 80, "Chip temperature that pauses the camera until it cools 10 C; 10 C above it the unit shuts down"},
     {"frame_size", 0, 21, 8, "Resolution: QVGA=5 (320x240), VGA=8 (640x480), SVGA=9, XGA=10, HD=11, UXGA=13, QSXGA=21"},
-    {"jpeg_quality", 4, 63, 10, "JPEG quality, lower = better and bigger. Below ~8 can overflow at large sizes"},
+    {"jpeg_quality", 4, 63, 12, "JPEG quality, lower = better and bigger. Below ~8 can overflow at large sizes"},
     {"brightness", -2, 2, 0, "Overall brightness offset"},
     {"contrast", -2, 2, 0, "Contrast. +1 makes the liquid line stand out more"},
     {"saturation", -2, 2, 0, "Colour saturation. Clear fluids need little; coloured fluids may like +1"},
@@ -31,7 +33,7 @@ const ParamSpec kParams[P_COUNT] = {
     {"agc", 0, 1, 1, "Auto gain. 0 = use agc_gain"},
     {"agc_gain", 0, 30, 0, "Manual gain when agc = 0. Higher = brighter but noisier"},
     {"gainceiling", 0, 6, 3, "Max auto gain: 0=2x 1=4x 2=8x 3=16x 4=32x 5=64x 6=128x. Higher = brighter in dim light, more noise"},
-    {"bpc", 0, 1, 0, "Black pixel correction"},
+    {"bpc", 0, 1, 1, "Black pixel correction (hides dead pixels)"},
     {"wpc", 0, 1, 1, "White pixel correction (hides hot pixels)"},
     {"raw_gma", 0, 1, 1, "Gamma correction"},
     {"lenc", 0, 1, 1, "Lens shading correction (evens out darker corners)"},
@@ -142,23 +144,26 @@ int CaptureConfig::apply(JsonObjectConst obj, String &errors) {
             continue;
         }
         v[idx] = n;
+        explicitMask |= 1ULL << idx;
         ++applied;
     }
     return applied;
 }
 
-void CaptureConfig::toJson(JsonObject obj) const {
+void CaptureConfig::toJson(JsonObject obj, bool explicitOnly) const {
     for (int i = 0; i < P_COUNT; ++i) {
-        obj[kParams[i].key] = v[i];
+        if (!explicitOnly || isSet((Param)i)) {
+            obj[kParams[i].key] = v[i];
+        }
     }
     obj["bed_label"] = bedLabel;
     obj["patient_name"] = patientName;
     obj["fluid_label"] = fluidLabel;
 }
 
-String CaptureConfig::toJsonString() const {
+String CaptureConfig::toJsonString(bool explicitOnly) const {
     JsonDocument doc;
-    toJson(doc.to<JsonObject>());
+    toJson(doc.to<JsonObject>(), explicitOnly);
     String out;
     serializeJson(doc, out);
     return out;
