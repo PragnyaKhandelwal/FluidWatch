@@ -347,7 +347,7 @@ void handleThermal() {
         return;
     }
     Serial.printf("[Thermal] %s (chip %.1f C, cutoff %d C)\n", thermal::stateName(), thermal::celsius(),
-                  settings[P_TEMP_CUTOFF_C]);
+                  (int)settings[P_TEMP_CUTOFF_C]);
     if (thermal::captureAllowed()) {
         setCpuFrequencyMhz(settings[P_CPU_MHZ]);
         if (camera::powerUp(settings)) {
