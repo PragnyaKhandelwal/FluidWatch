@@ -1,5 +1,5 @@
 """Remote control for FluidWatch ESP32-CAM units - no programmer needed after
-the first serial flash. Commands go over MQTT (HiveMQ Cloud); Supabase keeps
+the first serial flash. Commands go over MQTT (EMQX Cloud Serverless); Supabase keeps
 the firmware images, their release history and each unit's settings.
 
     pip install -r firmware/tools/requirements.txt

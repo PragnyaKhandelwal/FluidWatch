@@ -334,7 +334,7 @@ programmer once.
 | `src/main.cpp` | Schedule, upload, MQTT command handling, status reports |
 | `src/capture_config.cpp` | **The settings table**: every name, range, default and meaning (`fleet.py` reads it too) |
 | `src/camera_control.cpp` | Camera power-up / capture / power-down, applying sensor settings |
-| `src/remote.cpp` | MQTT over TLS (HiveMQ Cloud), with reconnect backoff and a last-will "offline" status |
+| `src/remote.cpp` | MQTT over TLS (EMQX Cloud Serverless), with reconnect backoff and a last-will "offline" status |
 | `src/ota.cpp` | Over-the-air install with SHA-256 check and automatic rollback |
 | `src/thermal.cpp` | Chip-temperature monitoring and the over-temperature cutoff |
 | `include/secrets.h` | Wi-Fi, `SERVER_URL`, `API_AUTH_TOKEN`, MQTT credentials (gitignored) |
@@ -449,7 +449,7 @@ touching the dataset, so you can compare them side by side. Things to look for:
 ### Remote management (MQTT + Supabase)
 
 ```
-fleet.py (laptop) --MQTT/TLS--> HiveMQ Cloud <--MQTT/TLS-- ESP32-CAM
+fleet.py (laptop) --MQTT/TLS--> EMQX Serverless <--MQTT/TLS-- ESP32-CAM
       |                                                       |
       +--- firmware images, releases, settings ---> Supabase <-+ downloads a signed URL
 ```
@@ -460,16 +460,22 @@ Topics, all under `fluidwatch/<DEVICE_ID>/`: `config` (retained settings),
 
 **One-time setup:**
 1. **Broker:**
-   1. Create a free cluster at [console.hivemq.cloud](https://console.hivemq.cloud).
-   2. Under **Access Management**, add credentials for the devices and for
-      yourself.
+   1. Create a **Serverless** deployment at [cloud-intl.emqx.com](https://cloud-intl.emqx.com).
+      Its free monthly quota (1M session minutes, 1 GB traffic) covers a few
+      units running 24/7. Keep the **Spend Limit at 0** so it never bills; if
+      the quota runs out the deployment stops until next month. It is also
+      stopped after 30 days with no connections (restart it in the console).
+   2. Under **Access Control → Authentication**, add one username/password
+      for the devices and one for yourself.
+   The firmware trusts the deployment's CA (DigiCert Global Root G2) through
+   `include/root_ca.h`.
    3. Put the cluster host and the device credentials in
       `firmware/esp32-cam/include/secrets.h` (`MQTT_HOST`, `MQTT_USERNAME`,
       `MQTT_PASSWORD`).
    4. Put the host and your own credentials in `firmware/tools/.env`
       (gitignored):
       ```
-      MQTT_HOST=xxxxxxxx.s1.eu.hivemq.cloud
+      MQTT_HOST=xxxxxxxx.ala.asia-southeast1.emqxsl.com
       MQTT_USERNAME=...
       MQTT_PASSWORD=...
       ```

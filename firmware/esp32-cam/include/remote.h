@@ -2,7 +2,7 @@
 
 #include <ArduinoJson.h>
 
-// MQTT link to the broker (HiveMQ Cloud over TLS), so a unit can be
+// MQTT link to the broker (EMQX Cloud Serverless, TLS on 8883), so a unit can be
 // reconfigured, triggered and updated from anywhere without a programmer.
 //
 // Topics, all under fluidwatch/<DEVICE_ID>/:
